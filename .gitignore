@@ -1,0 +1,67 @@
+# Build directories
+build/
+cmake-build-debug/
+cmake-build-release/
+.vs/
+Debug/
+Release/
+bin/
+obj/
+
+# Object files
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+.sln.DotSettings
+.sln.iml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Test results
+test_results.xml
+coverage.xml
+*.gcda
+*.gcno
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+dbx4_data/
+
+# Documentation
+docs/generated/
+doxygen_warnings.txt
+
