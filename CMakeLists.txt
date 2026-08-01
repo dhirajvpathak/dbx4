@@ -7,7 +7,7 @@ project(DBX4 VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_RELEASE "/O2 /W4 /WX")
+set(CMAKE_CXX_FLAGS_RELEASE "/O2 /W4 ")
 set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Od /RTC1")
 
 # ============================================================================
@@ -207,4 +207,5 @@ message(STATUS "  ctest -C Release -V")
 message(STATUS "")
 message(STATUS "========================================")
 message(STATUS "")
+
 

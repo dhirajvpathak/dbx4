@@ -1,3 +1,10 @@
+#include <string>
+#include <vector>
+#include <map>
+#include <set>
+#include <queue>
+#include <deque>
+#include <functional>
 // ============================================================================
 // DBX4 PRODUCTION STORAGE ENGINE - FULL IMPLEMENTATION
 // Real-world production code with all enterprise features
@@ -698,4 +705,5 @@ int main() {
 
     return 0;
 }
+
 

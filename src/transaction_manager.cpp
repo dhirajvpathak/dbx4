@@ -1,3 +1,10 @@
+#include <string>
+#include <vector>
+#include <map>
+#include <set>
+#include <queue>
+#include <deque>
+#include <functional>
 // ============================================================================
 // DBX4 TRANSACTION MANAGER
 // ACID compliance with multiple isolation levels
@@ -407,4 +414,5 @@ int main() {
 
     return 0;
 }
+
 

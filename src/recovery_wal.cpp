@@ -1,3 +1,5 @@
+#include <set>
+#include <string>
 // ============================================================================
 // DBX4 PHASE 3: RECOVERY + WAL - COMPLETE IMPLEMENTATION
 // Write-Ahead Log + Crash Recovery + Checkpointing
@@ -764,3 +766,4 @@ int main() {
 
     return failed > 0 ? 1 : 0;
 }
+

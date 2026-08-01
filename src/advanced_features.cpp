@@ -1,3 +1,8 @@
+#include <string>
+#include <queue>
+#include <set>
+#include <deque>
+#include <functional>
 // ============================================================================
 // DBX4 PHASE 5: ADVANCED FEATURES - COMPLETE IMPLEMENTATION
 // Declared-Intent Tables + Event System + Graph Engine
@@ -585,4 +590,5 @@ int main() {
 
     return 0;
 }
+
 

@@ -1,3 +1,10 @@
+#include <string>
+#include <vector>
+#include <map>
+#include <set>
+#include <queue>
+#include <deque>
+#include <functional>
 // ============================================================================
 // DBX4 STORAGE ENGINE - COMPLETE PRODUCTION IMPLEMENTATION
 // Paged Storage + Buffer Pool + MVCC + Transactions  
@@ -690,3 +697,4 @@ int main() {
 
     return 0;
 }
+

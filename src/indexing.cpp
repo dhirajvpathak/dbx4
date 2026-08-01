@@ -1,3 +1,4 @@
+#include <string>
 // ============================================================================
 // DBX4 PHASE 4: INDEXING + QUERY OPTIMIZATION - COMPLETE
 // B-Tree Indexes + Hash Indexes + Query Optimization + Zone Maps
@@ -557,4 +558,5 @@ int main() {
 
     return 0;
 }
+
 

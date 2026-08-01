@@ -1,3 +1,4 @@
+#include <string>
 // ============================================================================
 // DBX4 PHASE 2: MVCC + LOCK MANAGER - COMPLETE IMPLEMENTATION
 // Enterprise-Grade Version Control + Distributed Locking
@@ -831,3 +832,4 @@ int main() {
 
     return failed > 0 ? 1 : 0;
 }
+

@@ -1,3 +1,8 @@
+#include <string>
+#include <queue>
+#include <set>
+#include <deque>
+#include <functional>
 // ============================================================================
 // DBX4 PHASE 6: COMPREHENSIVE TESTING + PERFORMANCE SUITE
 // Unit Tests + Integration Tests + Stress Tests + Benchmarks
@@ -505,4 +510,5 @@ int main() {
 
     return 0;
 }
+
 
