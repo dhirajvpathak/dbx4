@@ -1,4 +1,4 @@
-#include <string>
+﻿#include <string>
 #include <queue>
 #include <set>
 #include <deque>
@@ -80,7 +80,7 @@ public:
         
         int passed_count = 0;
         for (const auto& result : results_) {
-            std::string status = result.passed ? "✓ PASS" : "✗ FAIL";
+            std::string status = result.passed ? "âœ“ PASS" : "âœ— FAIL";
             std::cout << status << " | " << std::setw(50) << std::left << result.test_name
                       << " | " << result.duration.count() << "ms" << std::endl;
             if (result.passed) passed_count++;
@@ -403,8 +403,8 @@ void run_performance_benchmarks() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         
         double throughput = (100000.0 * 1000.0) / duration.count();
-        std::cout << "✓ 100,000 inserts in " << duration.count() << "ms" << std::endl;
-        std::cout << "✓ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
+        std::cout << "âœ“ 100,000 inserts in " << duration.count() << "ms" << std::endl;
+        std::cout << "âœ“ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
     }
 
     // Benchmark 2: Search Performance
@@ -425,8 +425,8 @@ void run_performance_benchmarks() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         
         double throughput = (100000.0 * 1000.0) / duration.count();
-        std::cout << "✓ 100,000 searches in " << duration.count() << "ms" << std::endl;
-        std::cout << "✓ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
+        std::cout << "âœ“ 100,000 searches in " << duration.count() << "ms" << std::endl;
+        std::cout << "âœ“ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
     }
 
     // Benchmark 3: Concurrent Throughput
@@ -453,8 +453,8 @@ void run_performance_benchmarks() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         
         double throughput = (100000.0 * 1000.0) / duration.count();
-        std::cout << "✓ 100,000 concurrent ops in " << duration.count() << "ms" << std::endl;
-        std::cout << "✓ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
+        std::cout << "âœ“ 100,000 concurrent ops in " << duration.count() << "ms" << std::endl;
+        std::cout << "âœ“ Throughput: " << static_cast<int>(throughput) << " ops/sec" << std::endl;
     }
 
     // Benchmark 4: Memory Efficiency
@@ -467,8 +467,8 @@ void run_performance_benchmarks() {
         }
 
         size_t total_memory = pages.size() * 8192;
-        std::cout << "✓ Allocated " << (total_memory / (1024 * 1024)) << "MB for 10,000 pages" << std::endl;
-        std::cout << "✓ Memory per page: 8,192 bytes" << std::endl;
+        std::cout << "âœ“ Allocated " << (total_memory / (1024 * 1024)) << "MB for 10,000 pages" << std::endl;
+        std::cout << "âœ“ Memory per page: 8,192 bytes" << std::endl;
     }
 
     std::cout << std::string(80, '=') << std::endl;
@@ -482,10 +482,10 @@ void run_performance_benchmarks() {
 
 int main() {
     std::cout << "\n";
-    std::cout << "╔════════════════════════════════════════════════════════╗" << std::endl;
-    std::cout << "║        DBX4 PHASE 6: COMPREHENSIVE TEST SUITE          ║" << std::endl;
-    std::cout << "║   Unit Tests + Integration Tests + Stress Tests        ║" << std::endl;
-    std::cout << "╚════════════════════════════════════════════════════════╝" << std::endl;
+    std::cout << "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" << std::endl;
+    std::cout << "â•‘        DBX4 PHASE 6: COMPREHENSIVE TEST SUITE          â•‘" << std::endl;
+    std::cout << "â•‘   Unit Tests + Integration Tests + Stress Tests        â•‘" << std::endl;
+    std::cout << "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" << std::endl;
 
     dbx4::TestFramework tf;
 
@@ -501,14 +501,16 @@ int main() {
     dbx4::run_performance_benchmarks();
 
     // Final Summary
-    std::cout << "\n╔════════════════════════════════════════════════════════╗" << std::endl;
-    std::cout << "║                    FINAL SUMMARY                       ║" << std::endl;
-    std::cout << "║  Success Rate: " << std::setw(40) << std::left << (tf.get_success_rate()) << "║" << std::endl;
-    std::cout << "║  Status: " << std::setw(45) << std::left << "PRODUCTION READY" << "║" << std::endl;
-    std::cout << "╚════════════════════════════════════════════════════════╝" << std::endl;
+    std::cout << "\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" << std::endl;
+    std::cout << "â•‘                    FINAL SUMMARY                       â•‘" << std::endl;
+    std::cout << "â•‘  Success Rate: " << std::setw(40) << std::left << (tf.get_success_rate()) << "â•‘" << std::endl;
+    std::cout << "â•‘  Status: " << std::setw(45) << std::left << "PRODUCTION READY" << "â•‘" << std::endl;
+    std::cout << "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" << std::endl;
     std::cout << std::endl;
 
     return 0;
 }
+
+
 
 
