@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 project(DBX4 VERSION 1.0.0 LANGUAGES CXX)
 
 # ============================================================================
@@ -184,6 +184,33 @@ add_test(
 )
 
 # ============================================================================
+# PHASE 4: SQL EXECUTOR TEST SUITE
+# ============================================================================
+
+# SQL Executor Tests
+add_executable(sql_executor_tests tests/sql_executor_tests.cpp)
+target_include_directories(sql_executor_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(sql_executor_tests PRIVATE /std:c++17 /W4)
+
+add_test(
+    NAME SQLExecutorTests
+    COMMAND sql_executor_tests
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>
+)
+
+# SQL Executor Integration Tests
+add_executable(sql_executor_integration tests/sql_executor_integration_test.cpp)
+target_include_directories(sql_executor_integration PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(sql_executor_integration PRIVATE /std:c++17 /W4)
+
+add_test(
+    NAME SQLExecutorIntegrationTests
+    COMMAND sql_executor_integration
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>
+)
+
+
+# ============================================================================
 # BUILD OUTPUT MESSAGE
 # ============================================================================
 
@@ -207,5 +234,6 @@ message(STATUS "  ctest -C Release -V")
 message(STATUS "")
 message(STATUS "========================================")
 message(STATUS "")
+
 
 
