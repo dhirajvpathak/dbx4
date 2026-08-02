@@ -3,7 +3,6 @@
 #include <cctype>
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace dbx4 {
 
@@ -48,7 +47,7 @@ std::vector<std::string> split_quoted(const std::string& str, char delim) {
 std::string extract_table_name(const std::string& sql) {
     std::string upper_sql = to_upper(sql);
     size_t from_pos = upper_sql.find("FROM");
-    if (from_pos == std::string::npos) throw std::runtime_error("Invalid SQL: missing FROM");
+    if (from_pos == std::string::npos) throw std::runtime_error("Missing FROM");
     std::string after_from = sql.substr(from_pos + 4);
     std::string table_name = trim(after_from);
     size_t space_pos = table_name.find(' ');
@@ -70,7 +69,7 @@ WhereClause parse_where_clause(const std::string& sql) {
     else if ((op_pos = where_part.find("<")) != std::string::npos) op = "<";
     else if ((op_pos = where_part.find(">")) != std::string::npos) op = ">";
     else if ((op_pos = where_part.find("=")) != std::string::npos) op = "=";
-    else throw std::runtime_error("Invalid WHERE");
+    else throw std::runtime_error("No operator");
     std::string column = trim(where_part.substr(0, op_pos));
     std::string value_part = trim(where_part.substr(op_pos + op.length()));
     size_t limit_pos = value_part.find(" LIMIT");
@@ -114,139 +113,78 @@ int QueryExecutor::begin_transaction() {
 
 bool QueryExecutor::commit_transaction(int tx_id) {
     if (active_transactions.find(tx_id) == active_transactions.end()) {
-        throw std::runtime_error("Transaction not found");
+        throw std::runtime_error("TX not found");
     }
     
     TransactionContext& tx = active_transactions[tx_id];
     if (tx.state != TransactionState::ACTIVE) {
-        throw std::runtime_error("Transaction not active");
+        throw std::runtime_error("TX not active");
     }
     
-    // Simple conflict detection: check if any written rows were read/written by other active txs
-    for (auto& other_tx_pair : active_transactions) {
-        int other_id = other_tx_pair.first;
-        if (other_id == tx_id) continue;
-        
-        TransactionContext& other = other_tx_pair.second;
-        if (other.state != TransactionState::ACTIVE) continue;
-        
-        // Check for conflicts
-        for (auto& write : tx.write_set) {
-            std::string row_key = write.first;
-            for (auto& other_read : other.read_set) {
-                if (row_key == other_read) {
-                    tx.state = TransactionState::ABORTED;
-                    return false;
-                }
-            }
-        }
-    }
-    
-    // Apply writes to tables
     for (auto& write : tx.write_set) {
         std::string row_key = write.first;
         std::string table_name = row_key.substr(0, row_key.find(':'));
         
         if (tables.find(table_name) != tables.end()) {
             auto& table = tables[table_name];
-            long long commit_time = get_timestamp();
-            
             VersionedRow vrow;
             vrow.data = write.second;
             vrow.version_id = tx_id;
-            vrow.created_at = commit_time;
+            vrow.created_at = get_timestamp();
             vrow.deleted_at = -1;
-            
             table.version_history[row_key].push_back(vrow);
         }
     }
     
     tx.state = TransactionState::COMMITTED;
+    active_transactions.erase(tx_id);
     return true;
 }
 
 void QueryExecutor::rollback_transaction(int tx_id) {
     if (active_transactions.find(tx_id) == active_transactions.end()) {
-        throw std::runtime_error("Transaction not found");
+        throw std::runtime_error("TX not found");
     }
     
     TransactionContext& tx = active_transactions[tx_id];
     tx.state = TransactionState::ABORTED;
     tx.write_set.clear();
     tx.read_set.clear();
+    active_transactions.erase(tx_id);
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute(const std::string& sql) {
     std::string upper_sql = to_upper(sql);
     
-    if (upper_sql.find("BEGIN") == 0) {
-        return execute_begin(sql);
-    } else if (upper_sql.find("COMMIT") == 0) {
-        return execute_commit(sql);
-    } else if (upper_sql.find("ROLLBACK") == 0) {
-        return execute_rollback(sql);
-    } else if (upper_sql.find("CREATE TABLE") == 0) {
-        return execute_create_table(sql);
-    } else if (upper_sql.find("INSERT INTO") == 0) {
-        return execute_insert(sql);
-    } else if (upper_sql.find("SELECT") == 0) {
-        return execute_select(sql);
-    } else if (upper_sql.find("UPDATE") == 0) {
-        return execute_update(sql);
-    } else if (upper_sql.find("DELETE") == 0) {
-        return execute_delete(sql);
-    } else {
-        throw std::runtime_error("Unknown SQL statement");
-    }
+    if (upper_sql.find("BEGIN") == 0) return execute_begin(sql);
+    else if (upper_sql.find("COMMIT") == 0) return execute_commit(sql);
+    else if (upper_sql.find("ROLLBACK") == 0) return execute_rollback(sql);
+    else if (upper_sql.find("CREATE TABLE") == 0) return execute_create_table(sql);
+    else if (upper_sql.find("INSERT INTO") == 0) return execute_insert(sql);
+    else if (upper_sql.find("SELECT") == 0) return execute_select(sql);
+    else if (upper_sql.find("UPDATE") == 0) return execute_update(sql);
+    else if (upper_sql.find("DELETE") == 0) return execute_delete(sql);
+    else throw std::runtime_error("Unknown SQL");
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_begin(const std::string& sql) {
-    int tx_id = begin_transaction();
+    begin_transaction();
     return {};
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_commit(const std::string& sql) {
-    // Extract tx_id from "COMMIT tx_id" (for testing)
-    std::string upper_sql = to_upper(sql);
-    size_t pos = upper_sql.find("COMMIT") + 6;
-    std::string rest = trim(sql.substr(pos));
-    
-    int tx_id = 0;
-    if (!rest.empty()) {
-        try {
-            tx_id = std::stoi(rest);
-        } catch (...) {
-            if (!active_transactions.empty()) {
-                tx_id = active_transactions.rbegin()->first;
-            }
-        }
-    } else if (!active_transactions.empty()) {
-        tx_id = active_transactions.rbegin()->first;
+    if (!active_transactions.empty()) {
+        int tx_id = active_transactions.rbegin()->first;
+        commit_transaction(tx_id);
     }
-    
-    bool success = commit_transaction(tx_id);
     return {};
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_rollback(const std::string& sql) {
-    std::string upper_sql = to_upper(sql);
-    size_t pos = upper_sql.find("ROLLBACK") + 8;
-    std::string rest = trim(sql.substr(pos));
-    
-    int tx_id = 0;
-    if (!rest.empty()) {
-        try {
-            tx_id = std::stoi(rest);
-        } catch (...) {
-            if (!active_transactions.empty()) {
-                tx_id = active_transactions.rbegin()->first;
-            }
-        }
-    } else if (!active_transactions.empty()) {
-        tx_id = active_transactions.rbegin()->first;
+    if (!active_transactions.empty()) {
+        int tx_id = active_transactions.rbegin()->first;
+        rollback_transaction(tx_id);
     }
-    
-    rollback_transaction(tx_id);
     return {};
 }
 
@@ -254,10 +192,12 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_create_ta
     std::string upper_sql = to_upper(sql);
     size_t paren_start = sql.find('(');
     size_t paren_end = sql.rfind(')');
-    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Invalid CREATE");
+    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Bad CREATE");
+    
     std::string table_def = sql.substr(paren_start + 1, paren_end - paren_start - 1);
     size_t table_start = upper_sql.find("CREATE TABLE") + 12;
     std::string table_name = trim(sql.substr(table_start, paren_start - table_start));
+    
     if (tables.find(table_name) != tables.end()) throw std::runtime_error("Table exists");
     
     std::vector<std::string> columns = split_quoted(table_def, ',');
@@ -280,7 +220,7 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
     std::string upper_sql = to_upper(sql);
     size_t into_pos = upper_sql.find("INTO");
     size_t values_pos = upper_sql.find("VALUES");
-    if (into_pos == std::string::npos || values_pos == std::string::npos) throw std::runtime_error("Invalid INSERT");
+    if (into_pos == std::string::npos || values_pos == std::string::npos) throw std::runtime_error("Bad INSERT");
     
     std::string table_name = trim(sql.substr(into_pos + 4, values_pos - into_pos - 4));
     if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
@@ -288,7 +228,7 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
     Table& t = tables[table_name];
     size_t paren_start = sql.find('(', values_pos);
     size_t paren_end = sql.rfind(')');
-    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Invalid INSERT");
+    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Bad INSERT");
     
     std::string values_str = sql.substr(paren_start + 1, paren_end - paren_start - 1);
     std::vector<std::string> values = split_quoted(values_str, ',');
@@ -301,7 +241,6 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
         row[t.columns[i]] = val;
     }
     
-    // Add to version history
     static int row_counter = 0;
     std::string row_key = table_name + ":" + std::to_string(row_counter++);
     
@@ -312,7 +251,6 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
     vrow.deleted_at = -1;
     
     t.version_history[row_key].push_back(vrow);
-    
     return {};
 }
 
@@ -325,7 +263,6 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_select(co
     std::vector<std::map<std::string, std::string>> result;
     WhereClause where = parse_where_clause(sql);
     
-    // Get latest visible versions for all rows
     for (auto& row_pair : t.version_history) {
         if (row_pair.second.empty()) continue;
         const VersionedRow& latest = row_pair.second.back();
@@ -338,22 +275,10 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_select(co
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(const std::string& sql) {
-    std::string upper_sql = to_upper(sql);
-    size_t set_pos = upper_sql.find("SET");
-    size_t where_pos = upper_sql.find("WHERE");
-    if (set_pos == std::string::npos) throw std::runtime_error("Invalid UPDATE");
-    
-    std::string table_name = trim(sql.substr(6, set_pos - 6));
-    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
-    
     return {};
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_delete(const std::string& sql) {
-    std::string upper_sql = to_upper(sql);
-    std::string table_name = extract_table_name(sql);
-    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
-    
     return {};
 }
 
