@@ -165,6 +165,18 @@ void WalManager::write_log_entry(const LogEntry& entry) {
 
 std::vector<LogEntry> WalManager::read_wal(const std::string& table_name) {
     std::vector<LogEntry> entries;
+    std::string wal_file = log_directory + "/" + table_name + ".wal";
+    std::ifstream file(wal_file, std::ios::in);
+    if (!file.is_open()) return entries;
+    
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        LogEntry entry;
+        entry.committed = true;
+        entries.push_back(entry);
+    }
+    file.close();
     return entries;
 }
 
@@ -185,6 +197,10 @@ void WalManager::flush_wal() {
 void WalManager::clear_wal(const std::string& table_name) {
     std::string wal_file = log_directory + "/" + table_name + ".wal";
     std::remove(wal_file.c_str());
+}
+
+void WalManager::mark_committed(int tx_id, const std::string& table_name) {
+    committed_transactions.insert(tx_id);
 }
 
 void RecoveryManager::recover(std::map<std::string, Table>& tables) {
@@ -249,6 +265,9 @@ bool QueryExecutor::commit_transaction(int tx_id) {
     }
     
     wal_manager.flush_wal();
+    wal_manager.mark_committed(tx_id, "all");
+    committed_tx_ids.insert(tx_id);
+    
     tx.state = TransactionState::COMMITTED;
     active_transactions.erase(tx_id);
     return true;
@@ -362,16 +381,20 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
     static int row_counter = 0;
     std::string row_key = table_name + ":" + std::to_string(row_counter++);
     
-    VersionedRow vrow;
-    vrow.data = row;
-    vrow.version_id = 0;
-    vrow.created_at = get_timestamp();
-    vrow.deleted_at = -1;
-    
-    t.version_history[row_key].push_back(vrow);
-    t.primary_index.insert(row_key, row_key);
-    t.row_cache.put(row_key, row);
-    update_memory_tracking(row_key.length() + 100);
+    if (!active_transactions.empty()) {
+        int tx_id = active_transactions.rbegin()->first;
+        active_transactions[tx_id].write_set[row_key] = row;
+    } else {
+        VersionedRow vrow;
+        vrow.data = row;
+        vrow.version_id = 0;
+        vrow.created_at = get_timestamp();
+        vrow.deleted_at = -1;
+        t.version_history[row_key].push_back(vrow);
+        t.primary_index.insert(row_key, row_key);
+        t.row_cache.put(row_key, row);
+        update_memory_tracking(row_key.length() + 100);
+    }
     return {};
 }
 

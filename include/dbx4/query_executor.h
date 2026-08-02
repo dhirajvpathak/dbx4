@@ -65,7 +65,6 @@ struct TransactionContext {
 struct IndexEntry {
     std::string key;
     std::vector<std::string> row_keys;
-    
     IndexEntry(const std::string& k) : key(k) {}
 };
 
@@ -112,10 +111,12 @@ public:
     std::vector<LogEntry> read_wal(const std::string& table_name);
     void flush_wal();
     void clear_wal(const std::string& table_name);
+    void mark_committed(int tx_id, const std::string& table_name);
     
 private:
     std::string log_directory;
     std::map<std::string, std::vector<LogEntry>> pending_writes;
+    std::set<int> committed_transactions;
 };
 
 class RecoveryManager {
@@ -141,6 +142,7 @@ public:
 private:
     std::map<std::string, Table> tables;
     std::map<int, TransactionContext> active_transactions;
+    std::set<int> committed_tx_ids;
     int transaction_counter;
     long long clock;
     WalManager wal_manager;
