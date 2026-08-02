@@ -1,5 +1,5 @@
-#include "sql_parser.h"
-#include "../include/dbx4_exceptions.h"
+#include "sql_parser_FIXED.h"
+#include <algorithm>
 
 namespace dbx4 {
 
@@ -35,7 +35,26 @@ bool SQLParser::check(TokenType type) {
     return current().type == type;
 }
 
+void SQLParser::consume(TokenType type, const std::string& message) {
+    if (!check(type)) {
+        throw SQLParseException(message + " at line " + std::to_string(current().line));
+    }
+    advance();
+}
+
 std::shared_ptr<ASTNode> SQLParser::parse() {
+    auto stmt = parse_statement();
+    
+    // Require EOF or semicolon at end
+    if (!check(TokenType::EOF_TOKEN) && !check(TokenType::SEMICOLON)) {
+        throw SQLParseException("Expected end of statement, got unexpected token '" + 
+                               current().value + "' at line " + std::to_string(current().line));
+    }
+    
+    return stmt;
+}
+
+std::shared_ptr<ASTNode> SQLParser::parse_statement() {
     if (check(TokenType::CREATE)) {
         return parse_create_table();
     } else if (check(TokenType::SELECT)) {
@@ -48,46 +67,54 @@ std::shared_ptr<ASTNode> SQLParser::parse() {
         return parse_delete();
     }
     
-    throw SQLParseException("Unknown statement type");
+    throw SQLParseException("Unknown statement type at line " + std::to_string(current().line));
 }
 
 std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
     auto stmt = std::make_shared<CreateTableStmt>();
     
-    if (!match(TokenType::CREATE)) throw SQLParseException("Expected CREATE");
-    if (!match(TokenType::TABLE)) throw SQLParseException("Expected TABLE");
+    consume(TokenType::CREATE, "Expected CREATE");
+    consume(TokenType::TABLE, "Expected TABLE");
     
-    if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected table name");
+    if (!check(TokenType::IDENTIFIER)) {
+        throw SQLParseException("Expected table name at line " + std::to_string(current().line));
+    }
     stmt->table_name = current().value;
     advance();
     
-    if (!match(TokenType::LPAREN)) throw SQLParseException("Expected (");
+    consume(TokenType::LPAREN, "Expected ( after table name");
     
     while (!check(TokenType::RPAREN) && !check(TokenType::EOF_TOKEN)) {
-        if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected column name");
+        if (!check(TokenType::IDENTIFIER)) {
+            throw SQLParseException("Expected column name at line " + std::to_string(current().line));
+        }
         
         ColumnDef col;
         col.name = current().value;
         advance();
         
-        // Parse type
+        // Parse type (REQUIRED)
         if (check(TokenType::INT)) {
             col.type = TokenType::INT;
             advance();
-        } else if (check(TokenType::VARCHAR)) {
-            col.type = TokenType::VARCHAR;
-            advance();
-            if (match(TokenType::LPAREN)) {
-                // Parse length
-                if (!check(TokenType::NUMBER)) throw SQLParseException("Expected number for VARCHAR length");
-                advance();
-                if (!match(TokenType::RPAREN)) throw SQLParseException("Expected )");
-            }
         } else if (check(TokenType::BIGINT)) {
             col.type = TokenType::BIGINT;
             advance();
         } else if (check(TokenType::DOUBLE)) {
             col.type = TokenType::DOUBLE;
+            advance();
+        } else if (check(TokenType::VARCHAR)) {
+            col.type = TokenType::VARCHAR;
+            advance();
+            if (match(TokenType::LPAREN)) {
+                if (!check(TokenType::NUMBER)) {
+                    throw SQLParseException("Expected number for VARCHAR length");
+                }
+                advance();
+                consume(TokenType::RPAREN, "Expected ) after VARCHAR length");
+            }
+        } else if (check(TokenType::CHAR)) {
+            col.type = TokenType::CHAR;
             advance();
         } else if (check(TokenType::BOOLEAN)) {
             col.type = TokenType::BOOLEAN;
@@ -95,23 +122,29 @@ std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
         } else if (check(TokenType::TIMESTAMP)) {
             col.type = TokenType::TIMESTAMP;
             advance();
+        } else if (check(TokenType::TEXT)) {
+            col.type = TokenType::TEXT;
+            advance();
         } else {
-            throw SQLParseException("Unknown data type");
+            throw SQLParseException("Unknown data type '" + current().value + "' at line " + 
+                                   std::to_string(current().line));
         }
         
         // Parse constraints
-        while (check(TokenType::NOT) || check(TokenType::PRIMARY) || check(TokenType::UNIQUE) || check(TokenType::DEFAULT)) {
-            if (match(TokenType::NOT)) {
-                if (!match(TokenType::NULL)) throw SQLParseException("Expected NULL after NOT");
+        while (check(TokenType::NOT_KEYWORD) || check(TokenType::PRIMARY) || 
+               check(TokenType::UNIQUE) || check(TokenType::DEFAULT)) {
+            if (match(TokenType::NOT_KEYWORD)) {
+                consume(TokenType::NULL_KEYWORD, "Expected NULL after NOT");
                 col.not_null = true;
             } else if (match(TokenType::PRIMARY)) {
-                if (!match(TokenType::KEY)) throw SQLParseException("Expected KEY after PRIMARY");
+                consume(TokenType::KEY, "Expected KEY after PRIMARY");
                 col.primary_key = true;
             } else if (match(TokenType::UNIQUE)) {
                 col.unique = true;
             } else if (match(TokenType::DEFAULT)) {
-                if (!check(TokenType::STRING) && !check(TokenType::NUMBER)) {
-                    throw SQLParseException("Expected default value");
+                if (!check(TokenType::STRING) && !check(TokenType::NUMBER) && 
+                    !check(TokenType::NULL_KEYWORD)) {
+                    throw SQLParseException("Expected default value at line " + std::to_string(current().line));
                 }
                 col.default_value = current().value;
                 advance();
@@ -121,12 +154,16 @@ std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
         stmt->columns.push_back(col);
         
         if (!check(TokenType::RPAREN)) {
-            if (!match(TokenType::COMMA)) throw SQLParseException("Expected , or )");
+            consume(TokenType::COMMA, "Expected , or )");
         }
     }
     
-    if (!match(TokenType::RPAREN)) throw SQLParseException("Expected )");
-    if (match(TokenType::SEMICOLON)) {}  // Optional semicolon
+    if (stmt->columns.empty()) {
+        throw SQLParseException("Table must have at least one column");
+    }
+    
+    consume(TokenType::RPAREN, "Expected ) to close column list");
+    match(TokenType::SEMICOLON);  // Optional
     
     return stmt;
 }
@@ -134,7 +171,7 @@ std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
 std::shared_ptr<SelectStmt> SQLParser::parse_select() {
     auto stmt = std::make_shared<SelectStmt>();
     
-    if (!match(TokenType::SELECT)) throw SQLParseException("Expected SELECT");
+    consume(TokenType::SELECT, "Expected SELECT");
     
     if (match(TokenType::DISTINCT)) {
         stmt->distinct = true;
@@ -144,27 +181,49 @@ std::shared_ptr<SelectStmt> SQLParser::parse_select() {
     do {
         if (check(TokenType::STAR)) {
             stmt->columns.push_back(std::make_shared<Identifier>("*"));
+            stmt->column_aliases.push_back("");
             advance();
         } else {
             stmt->columns.push_back(parse_expression());
+            // Check for alias
+            if (match(TokenType::AS)) {
+                if (!check(TokenType::IDENTIFIER)) {
+                    throw SQLParseException("Expected alias name at line " + std::to_string(current().line));
+                }
+                stmt->column_aliases.push_back(current().value);
+                advance();
+            } else {
+                stmt->column_aliases.push_back("");
+            }
         }
     } while (match(TokenType::COMMA));
     
+    if (stmt->columns.empty()) {
+        throw SQLParseException("SELECT requires at least one column");
+    }
+    
     if (match(TokenType::FROM)) {
-        if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected table name");
+        if (!check(TokenType::IDENTIFIER)) {
+            throw SQLParseException("Expected table name after FROM");
+        }
         stmt->table_name = current().value;
         advance();
     }
     
     if (match(TokenType::WHERE)) {
         stmt->where_clause = parse_expression();
+        if (!stmt->where_clause) {
+            throw SQLParseException("Invalid WHERE clause");
+        }
     }
     
     if (match(TokenType::ORDER)) {
-        if (!match(TokenType::BY)) throw SQLParseException("Expected BY after ORDER");
+        consume(TokenType::BY, "Expected BY after ORDER");
         
         do {
-            if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected column name");
+            if (!check(TokenType::IDENTIFIER)) {
+                throw SQLParseException("Expected column name in ORDER BY");
+            }
             std::string col = current().value;
             advance();
             
@@ -172,7 +231,7 @@ std::shared_ptr<SelectStmt> SQLParser::parse_select() {
             if (match(TokenType::DESC)) {
                 is_desc = true;
             } else {
-                match(TokenType::ASC);  // Optional ASC
+                match(TokenType::ASC);
             }
             
             stmt->order_by.push_back({col, is_desc});
@@ -180,14 +239,32 @@ std::shared_ptr<SelectStmt> SQLParser::parse_select() {
     }
     
     if (match(TokenType::LIMIT)) {
-        if (!check(TokenType::NUMBER)) throw SQLParseException("Expected number after LIMIT");
-        stmt->limit = std::stoi(current().value);
+        if (!check(TokenType::NUMBER)) {
+            throw SQLParseException("Expected number after LIMIT");
+        }
+        try {
+            stmt->limit = std::stoi(current().value);
+            if (stmt->limit < 0) {
+                throw SQLParseException("LIMIT must be non-negative");
+            }
+        } catch (const std::exception&) {
+            throw SQLParseException("Invalid LIMIT value: " + current().value);
+        }
         advance();
     }
     
     if (match(TokenType::OFFSET)) {
-        if (!check(TokenType::NUMBER)) throw SQLParseException("Expected number after OFFSET");
-        stmt->offset = std::stoi(current().value);
+        if (!check(TokenType::NUMBER)) {
+            throw SQLParseException("Expected number after OFFSET");
+        }
+        try {
+            stmt->offset = std::stoi(current().value);
+            if (stmt->offset < 0) {
+                throw SQLParseException("OFFSET must be non-negative");
+            }
+        } catch (const std::exception&) {
+            throw SQLParseException("Invalid OFFSET value: " + current().value);
+        }
         advance();
     }
     
@@ -197,58 +274,72 @@ std::shared_ptr<SelectStmt> SQLParser::parse_select() {
 std::shared_ptr<InsertStmt> SQLParser::parse_insert() {
     auto stmt = std::make_shared<InsertStmt>();
     
-    if (!match(TokenType::INSERT)) throw SQLParseException("Expected INSERT");
-    if (!match(TokenType::INTO)) throw SQLParseException("Expected INTO");
+    consume(TokenType::INSERT, "Expected INSERT");
+    consume(TokenType::INTO, "Expected INTO");
     
-    if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected table name");
+    if (!check(TokenType::IDENTIFIER)) {
+        throw SQLParseException("Expected table name");
+    }
     stmt->table_name = current().value;
     advance();
     
+    // Optional explicit column list
     if (match(TokenType::LPAREN)) {
         do {
-            if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected column name");
+            if (!check(TokenType::IDENTIFIER)) {
+                throw SQLParseException("Expected column name in INSERT");
+            }
             stmt->columns.push_back(current().value);
             advance();
         } while (match(TokenType::COMMA));
         
-        if (!match(TokenType::RPAREN)) throw SQLParseException("Expected )");
+        consume(TokenType::RPAREN, "Expected ) after column list");
     }
     
-    if (!match(TokenType::VALUES)) throw SQLParseException("Expected VALUES");
+    consume(TokenType::VALUES, "Expected VALUES");
     
     do {
-        if (!match(TokenType::LPAREN)) throw SQLParseException("Expected (");
+        consume(TokenType::LPAREN, "Expected ( for value row");
         
         std::vector<std::shared_ptr<Expression>> values;
         do {
             values.push_back(parse_expression());
         } while (match(TokenType::COMMA));
         
-        if (!match(TokenType::RPAREN)) throw SQLParseException("Expected )");
+        consume(TokenType::RPAREN, "Expected ) to close value row");
         
         stmt->values.push_back(values);
     } while (match(TokenType::COMMA));
     
+    if (stmt->values.empty()) {
+        throw SQLParseException("INSERT requires at least one value row");
+    }
+    
+    match(TokenType::SEMICOLON);  // Optional
     return stmt;
 }
 
 std::shared_ptr<UpdateStmt> SQLParser::parse_update() {
     auto stmt = std::make_shared<UpdateStmt>();
     
-    if (!match(TokenType::UPDATE)) throw SQLParseException("Expected UPDATE");
+    consume(TokenType::UPDATE, "Expected UPDATE");
     
-    if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected table name");
+    if (!check(TokenType::IDENTIFIER)) {
+        throw SQLParseException("Expected table name");
+    }
     stmt->table_name = current().value;
     advance();
     
-    if (!match(TokenType::SET)) throw SQLParseException("Expected SET");
+    consume(TokenType::SET, "Expected SET");
     
     do {
-        if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected column name");
+        if (!check(TokenType::IDENTIFIER)) {
+            throw SQLParseException("Expected column name in UPDATE");
+        }
         std::string col = current().value;
         advance();
         
-        if (!match(TokenType::EQUALS)) throw SQLParseException("Expected =");
+        consume(TokenType::EQUALS, "Expected = in assignment");
         
         auto expr = parse_expression();
         stmt->assignments.push_back({col, expr});
@@ -258,16 +349,19 @@ std::shared_ptr<UpdateStmt> SQLParser::parse_update() {
         stmt->where_clause = parse_expression();
     }
     
+    match(TokenType::SEMICOLON);
     return stmt;
 }
 
 std::shared_ptr<DeleteStmt> SQLParser::parse_delete() {
     auto stmt = std::make_shared<DeleteStmt>();
     
-    if (!match(TokenType::DELETE)) throw SQLParseException("Expected DELETE");
-    if (!match(TokenType::FROM)) throw SQLParseException("Expected FROM");
+    consume(TokenType::DELETE, "Expected DELETE");
+    consume(TokenType::FROM, "Expected FROM");
     
-    if (!check(TokenType::IDENTIFIER)) throw SQLParseException("Expected table name");
+    if (!check(TokenType::IDENTIFIER)) {
+        throw SQLParseException("Expected table name");
+    }
     stmt->table_name = current().value;
     advance();
     
@@ -275,6 +369,7 @@ std::shared_ptr<DeleteStmt> SQLParser::parse_delete() {
         stmt->where_clause = parse_expression();
     }
     
+    match(TokenType::SEMICOLON);
     return stmt;
 }
 
@@ -344,22 +439,36 @@ std::shared_ptr<Expression> SQLParser::parse_additive() {
 }
 
 std::shared_ptr<Expression> SQLParser::parse_multiplicative() {
-    auto expr = parse_primary();
+    auto expr = parse_unary();
     
     while (check(TokenType::MULTIPLY) || check(TokenType::DIVIDE) || check(TokenType::MODULO)) {
         TokenType op = current().type;
         advance();
-        auto right = parse_primary();
+        auto right = parse_unary();
         expr = std::make_shared<BinaryOp>(expr, right, op);
     }
     
     return expr;
 }
 
+std::shared_ptr<Expression> SQLParser::parse_unary() {
+    if (match(TokenType::NOT_OP)) {
+        auto expr = parse_unary();
+        return std::make_shared<UnaryOp>(expr, TokenType::NOT_OP);
+    }
+    
+    if (match(TokenType::MINUS)) {
+        auto expr = parse_unary();
+        return std::make_shared<UnaryOp>(expr, TokenType::MINUS);
+    }
+    
+    return parse_primary();
+}
+
 std::shared_ptr<Expression> SQLParser::parse_primary() {
     if (match(TokenType::LPAREN)) {
         auto expr = parse_expression();
-        if (!match(TokenType::RPAREN)) throw SQLParseException("Expected )");
+        consume(TokenType::RPAREN, "Expected ) after expression");
         return expr;
     }
     
@@ -375,13 +484,20 @@ std::shared_ptr<Expression> SQLParser::parse_primary() {
         return lit;
     }
     
+    if (check(TokenType::NULL_KEYWORD)) {
+        auto lit = std::make_shared<Literal>("NULL", TokenType::NULL_KEYWORD);
+        advance();
+        return lit;
+    }
+    
     if (check(TokenType::IDENTIFIER)) {
         auto id = std::make_shared<Identifier>(current().value);
         advance();
         return id;
     }
     
-    throw SQLParseException("Unexpected token in expression");
+    throw SQLParseException("Unexpected token '" + current().value + 
+                           "' in expression at line " + std::to_string(current().line));
 }
 
 } // namespace dbx4

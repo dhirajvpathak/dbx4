@@ -1,4 +1,4 @@
-#include "query_executor_engine.h"
+#include "query_executor_engine_FIXED.h"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -19,12 +19,26 @@ std::shared_ptr<Table> Database::create_table(const std::string& name, const std
         throw StorageException("Table '" + name + "' already exists");
     }
     
+    if (columns.empty()) {
+        throw SQLValidationException("Table must have at least one column");
+    }
+    
     auto table = std::make_shared<Table>();
     table->schema.name = name;
     table->schema.columns = columns;
     
     for (size_t i = 0; i < columns.size(); ++i) {
         table->schema.column_index[columns[i].name] = i;
+        
+        if (columns[i].primary_key) {
+            table->schema.primary_keys.insert(columns[i].name);
+        }
+        if (columns[i].unique) {
+            table->schema.unique_columns.insert(columns[i].name);
+        }
+        if (columns[i].not_null) {
+            table->schema.not_null_columns.insert(columns[i].name);
+        }
     }
     
     tables_[name] = table;
@@ -107,23 +121,77 @@ QueryResult QueryExecutor::execute_insert(const std::shared_ptr<InsertStmt>& stm
     int rows_inserted = 0;
     
     for (const auto& value_row : stmt->values) {
-        if (value_row.size() != table->schema.columns.size()) {
-            throw SQLValidationException("Column count mismatch: expected " + 
-                std::to_string(table->schema.columns.size()) + 
-                ", got " + std::to_string(value_row.size()));
+        // Validate column count
+        if (!stmt->columns.empty()) {
+            // Explicit column list provided
+            if (value_row.size() != stmt->columns.size()) {
+                throw SQLValidationException("Column count mismatch: expected " + 
+                    std::to_string(stmt->columns.size()) + ", got " + std::to_string(value_row.size()));
+            }
+        } else {
+            // No explicit columns - must match table structure
+            if (value_row.size() != table->schema.columns.size()) {
+                throw SQLValidationException("Column count mismatch: expected " + 
+                    std::to_string(table->schema.columns.size()) + ", got " + std::to_string(value_row.size()));
+            }
         }
         
         Row new_row;
-        for (size_t i = 0; i < value_row.size(); ++i) {
-            std::string col_name = table->schema.columns[i].name;
-            TokenType col_type = table->schema.columns[i].type;
+        
+        // Build row with proper column mapping
+        if (!stmt->columns.empty()) {
+            // Explicit columns
+            for (size_t i = 0; i < stmt->columns.size(); ++i) {
+                const std::string& col_name = stmt->columns[i];
+                validate_column_exists(col_name, table);
+                
+                size_t col_idx = table->schema.column_index[col_name];
+                TokenType col_type = table->schema.columns[col_idx].type;
+                
+                if (auto literal = std::dynamic_pointer_cast<Literal>(value_row[i])) {
+                    Value val = convert_to_type(
+                        Value(literal->value), 
+                        literal->type == TokenType::STRING ? TokenType::VARCHAR : literal->type
+                    );
+                    new_row[col_name] = val;
+                } else {
+                    throw SQLValidationException("Only literal values supported in INSERT");
+                }
+            }
             
-            if (auto literal = std::dynamic_pointer_cast<Literal>(value_row[i])) {
-                new_row[col_name] = convert_value(literal->value, literal->type);
-            } else {
-                throw SQLValidationException("Only literal values supported in INSERT");
+            // Add default values for missing columns
+            for (size_t col_idx = 0; col_idx < table->schema.columns.size(); ++col_idx) {
+                const auto& col = table->schema.columns[col_idx];
+                if (new_row.find(col.name) == new_row.end()) {
+                    if (!col.default_value.empty()) {
+                        new_row[col.name] = convert_to_type(Value(col.default_value), col.type);
+                    } else if (!col.not_null) {
+                        new_row[col.name] = Value();  // NULL
+                    } else {
+                        throw NotNullException(col.name);
+                    }
+                }
+            }
+        } else {
+            // No explicit columns - use table order
+            for (size_t i = 0; i < value_row.size(); ++i) {
+                const auto& col = table->schema.columns[i];
+                TokenType col_type = col.type;
+                
+                if (auto literal = std::dynamic_pointer_cast<Literal>(value_row[i])) {
+                    Value val = convert_to_type(
+                        Value(literal->value),
+                        literal->type == TokenType::STRING ? TokenType::VARCHAR : literal->type
+                    );
+                    new_row[col.name] = val;
+                } else {
+                    throw SQLValidationException("Only literal values supported in INSERT");
+                }
             }
         }
+        
+        // Validate constraints
+        validate_row(new_row, table);
         
         table->rows.push_back(new_row);
         rows_inserted++;
@@ -150,17 +218,18 @@ QueryResult QueryExecutor::execute_select(const std::shared_ptr<SelectStmt>& stm
     if (stmt->columns.size() == 1) {
         if (auto id = std::dynamic_pointer_cast<Identifier>(stmt->columns[0])) {
             if (id->name == "*") {
-                // Select all columns
                 for (const auto& col : table->schema.columns) {
                     select_columns.push_back(col.name);
                 }
             } else {
+                validate_column_exists(id->name, table);
                 select_columns.push_back(id->name);
             }
         }
     } else {
         for (const auto& col_expr : stmt->columns) {
             if (auto id = std::dynamic_pointer_cast<Identifier>(col_expr)) {
+                validate_column_exists(id->name, table);
                 select_columns.push_back(id->name);
             }
         }
@@ -185,40 +254,48 @@ QueryResult QueryExecutor::execute_select(const std::shared_ptr<SelectStmt>& stm
         std::sort(filtered_rows.begin(), filtered_rows.end(),
             [&](const Row& a, const Row& b) {
                 for (const auto& order_col : stmt->order_by) {
-                    std::string col_name = order_col.first;
+                    const std::string& col_name = order_col.first;
                     bool is_desc = order_col.second;
                     
-                    if (a.find(col_name) == a.end() || b.find(col_name) == b.end()) {
-                        continue;
+                    validate_column_exists(col_name, table);
+                    
+                    const Value& a_val = a.at(col_name);
+                    const Value& b_val = b.at(col_name);
+                    
+                    if (a_val.is_null() && b_val.is_null()) continue;
+                    if (a_val.is_null()) return !is_desc;
+                    if (b_val.is_null()) return is_desc;
+                    
+                    int cmp = 0;
+                    if (a_val.type == Value::INT_VAL && b_val.type == Value::INT_VAL) {
+                        auto a_i = std::any_cast<int64_t>(a_val.data);
+                        auto b_i = std::any_cast<int64_t>(b_val.data);
+                        cmp = (a_i < b_i) ? -1 : (a_i > b_i) ? 1 : 0;
+                    } else if (a_val.type == Value::DOUBLE_VAL && b_val.type == Value::DOUBLE_VAL) {
+                        auto a_d = std::any_cast<double>(a_val.data);
+                        auto b_d = std::any_cast<double>(b_val.data);
+                        cmp = (a_d < b_d) ? -1 : (a_d > b_d) ? 1 : 0;
+                    } else if (a_val.type == Value::STRING_VAL && b_val.type == Value::STRING_VAL) {
+                        auto a_s = std::any_cast<std::string>(a_val.data);
+                        auto b_s = std::any_cast<std::string>(b_val.data);
+                        cmp = a_s.compare(b_s);
                     }
                     
-                    // Simple comparison for numbers
-                    try {
-                        double a_val = std::any_cast<double>(a.at(col_name));
-                        double b_val = std::any_cast<double>(b.at(col_name));
-                        
-                        if (a_val != b_val) {
-                            return is_desc ? (a_val > b_val) : (a_val < b_val);
-                        }
-                    } catch (...) {
-                        // Try string comparison
-                        try {
-                            std::string a_val = std::any_cast<std::string>(a.at(col_name));
-                            std::string b_val = std::any_cast<std::string>(b.at(col_name));
-                            
-                            if (a_val != b_val) {
-                                return is_desc ? (a_val > b_val) : (a_val < b_val);
-                            }
-                        } catch (...) {}
+                    if (cmp != 0) {
+                        return is_desc ? (cmp > 0) : (cmp < 0);
                     }
                 }
                 return false;
             });
     }
     
-    // Apply LIMIT and OFFSET
+    // Apply LIMIT and OFFSET (FIX: LIMIT 0 returns empty, not all rows)
     int start_idx = stmt->offset;
     int end_idx = (stmt->limit > 0) ? (start_idx + stmt->limit) : filtered_rows.size();
+    
+    if (stmt->limit == 0) {
+        end_idx = start_idx;  // LIMIT 0 returns no rows
+    }
     
     for (int i = start_idx; i < end_idx && i < static_cast<int>(filtered_rows.size()); ++i) {
         Row result_row;
@@ -258,13 +335,13 @@ QueryResult QueryExecutor::execute_update(const std::shared_ptr<UpdateStmt>& stm
             const std::string& col_name = assignment.first;
             const auto& value_expr = assignment.second;
             
-            if (row.find(col_name) == row.end()) {
-                throw SQLValidationException("Column '" + col_name + "' does not exist");
-            }
+            validate_column_exists(col_name, table);
             
-            row[col_name] = evaluate_expression(value_expr, row);
+            Value new_val = evaluate_expression(value_expr, row);
+            row[col_name] = new_val;
         }
         
+        validate_row(row, table);
         rows_updated++;
     }
     
@@ -302,43 +379,73 @@ QueryResult QueryExecutor::execute_delete(const std::shared_ptr<DeleteStmt>& stm
     return result;
 }
 
-std::any QueryExecutor::evaluate_expression(const std::shared_ptr<Expression>& expr, const Row& row) {
+Value QueryExecutor::evaluate_expression(const std::shared_ptr<Expression>& expr, const Row& row) {
     if (auto literal = std::dynamic_pointer_cast<Literal>(expr)) {
-        return convert_value(literal->value, literal->type);
+        if (literal->type == TokenType::NULL_KEYWORD) {
+            return Value();
+        }
+        return Value(literal->value);
     }
     
     if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
         if (row.find(id->name) != row.end()) {
             return row.at(id->name);
         }
-        throw SQLValidationException("Unknown column: " + id->name);
+        throw SQLValidationException("Unknown column: '" + id->name + "'");
+    }
+    
+    if (auto unary = std::dynamic_pointer_cast<UnaryOp>(expr)) {
+        auto operand = evaluate_expression(unary->operand, row);
+        
+        if (unary->op == TokenType::MINUS) {
+            if (operand.type == Value::INT_VAL) {
+                return Value(-std::any_cast<int64_t>(operand.data));
+            } else if (operand.type == Value::DOUBLE_VAL) {
+                return Value(-std::any_cast<double>(operand.data));
+            }
+            throw TypeException("Cannot negate non-numeric value");
+        }
+        return operand;
     }
     
     if (auto binop = std::dynamic_pointer_cast<BinaryOp>(expr)) {
         auto left = evaluate_expression(binop->left, row);
         auto right = evaluate_expression(binop->right, row);
         
+        if (left.is_null() || right.is_null()) {
+            return Value();  // NULL
+        }
+        
         switch (binop->op) {
             case TokenType::PLUS: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l + r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return Value(std::any_cast<int64_t>(left.data) + std::any_cast<int64_t>(right.data));
+                }
+                double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                return Value(l + r);
             }
             case TokenType::MINUS: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l - r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return Value(std::any_cast<int64_t>(left.data) - std::any_cast<int64_t>(right.data));
+                }
+                double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                return Value(l - r);
             }
             case TokenType::MULTIPLY: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l * r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return Value(std::any_cast<int64_t>(left.data) * std::any_cast<int64_t>(right.data));
+                }
+                double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                return Value(l * r);
             }
             case TokenType::DIVIDE: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
+                double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
                 if (r == 0) throw OutOfRangeException("0", "divisor");
-                return l / r;
+                return Value(l / r);
             }
             default:
                 throw SQLValidationException("Unsupported operator in expression");
@@ -350,59 +457,84 @@ std::any QueryExecutor::evaluate_expression(const std::shared_ptr<Expression>& e
 
 bool QueryExecutor::evaluate_where_clause(const std::shared_ptr<Expression>& where, const Row& row) {
     if (auto binop = std::dynamic_pointer_cast<BinaryOp>(where)) {
+        // Short-circuit AND/OR (FIX: now properly evaluates both sides)
+        if (binop->op == TokenType::AND) {
+            bool left_result = evaluate_where_clause(binop->left, row);
+            if (!left_result) return false;  // Short-circuit
+            return evaluate_where_clause(binop->right, row);
+        }
+        if (binop->op == TokenType::OR) {
+            bool left_result = evaluate_where_clause(binop->left, row);
+            if (left_result) return true;  // Short-circuit
+            return evaluate_where_clause(binop->right, row);
+        }
+        
         auto left = evaluate_expression(binop->left, row);
         auto right = evaluate_expression(binop->right, row);
         
+        if (left.is_null() || right.is_null()) {
+            return false;  // NULL comparison is always false
+        }
+        
         switch (binop->op) {
             case TokenType::EQUALS: {
-                try {
-                    double l = std::any_cast<double>(left);
-                    double r = std::any_cast<double>(right);
-                    return l == r;
-                } catch (...) {
-                    std::string l = std::any_cast<std::string>(left);
-                    std::string r = std::any_cast<std::string>(right);
-                    return l == r;
+                if (left.type != right.type) {
+                    // Type mismatch in comparison
+                    return false;
                 }
-            }
-            case TokenType::NOT_EQUALS: {
-                try {
-                    double l = std::any_cast<double>(left);
-                    double r = std::any_cast<double>(right);
-                    return l != r;
-                } catch (...) {
-                    std::string l = std::any_cast<std::string>(left);
-                    std::string r = std::any_cast<std::string>(right);
-                    return l != r;
+                if (left.type == Value::INT_VAL) {
+                    return std::any_cast<int64_t>(left.data) == std::any_cast<int64_t>(right.data);
+                } else if (left.type == Value::DOUBLE_VAL) {
+                    return std::any_cast<double>(left.data) == std::any_cast<double>(right.data);
+                } else if (left.type == Value::STRING_VAL) {
+                    return std::any_cast<std::string>(left.data) == std::any_cast<std::string>(right.data);
+                } else if (left.type == Value::BOOL_VAL) {
+                    return std::any_cast<bool>(left.data) == std::any_cast<bool>(right.data);
                 }
+                return false;
             }
+            case TokenType::NOT_EQUALS:
+                return !evaluate_where_clause(
+                    std::make_shared<BinaryOp>(binop->left, binop->right, TokenType::EQUALS), row);
             case TokenType::LESS: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l < r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return std::any_cast<int64_t>(left.data) < std::any_cast<int64_t>(right.data);
+                } else if (left.type == Value::DOUBLE_VAL || right.type == Value::DOUBLE_VAL) {
+                    double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                    double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                    return l < r;
+                }
+                return false;
             }
             case TokenType::LESS_EQUAL: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l <= r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return std::any_cast<int64_t>(left.data) <= std::any_cast<int64_t>(right.data);
+                } else if (left.type == Value::DOUBLE_VAL || right.type == Value::DOUBLE_VAL) {
+                    double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                    double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                    return l <= r;
+                }
+                return false;
             }
             case TokenType::GREATER: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l > r;
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return std::any_cast<int64_t>(left.data) > std::any_cast<int64_t>(right.data);
+                } else if (left.type == Value::DOUBLE_VAL || right.type == Value::DOUBLE_VAL) {
+                    double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                    double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                    return l > r;
+                }
+                return false;
             }
             case TokenType::GREATER_EQUAL: {
-                double l = std::any_cast<double>(left);
-                double r = std::any_cast<double>(right);
-                return l >= r;
-            }
-            case TokenType::AND: {
-                return evaluate_where_clause(binop->left, row) && 
-                       evaluate_where_clause(binop->right, row);
-            }
-            case TokenType::OR: {
-                return evaluate_where_clause(binop->left, row) || 
-                       evaluate_where_clause(binop->right, row);
+                if (left.type == Value::INT_VAL && right.type == Value::INT_VAL) {
+                    return std::any_cast<int64_t>(left.data) >= std::any_cast<int64_t>(right.data);
+                } else if (left.type == Value::DOUBLE_VAL || right.type == Value::DOUBLE_VAL) {
+                    double l = (left.type == Value::INT_VAL) ? std::any_cast<int64_t>(left.data) : std::any_cast<double>(left.data);
+                    double r = (right.type == Value::INT_VAL) ? std::any_cast<int64_t>(right.data) : std::any_cast<double>(right.data);
+                    return l >= r;
+                }
+                return false;
             }
             default:
                 throw SQLValidationException("Unsupported operator in WHERE clause");
@@ -412,32 +544,106 @@ bool QueryExecutor::evaluate_where_clause(const std::shared_ptr<Expression>& whe
     throw SQLValidationException("Invalid WHERE clause");
 }
 
-std::any QueryExecutor::convert_value(const std::string& value, TokenType type) {
-    try {
-        switch (type) {
-            case TokenType::NUMBER:
-                return std::stod(value);
-            case TokenType::STRING:
-                return value;
-            default:
-                return value;
+Value QueryExecutor::convert_to_type(const Value& value, TokenType target_type) {
+    if (value.is_null()) return Value();
+    
+    switch (target_type) {
+        case TokenType::INT:
+        case TokenType::BIGINT: {
+            if (value.type == Value::INT_VAL) return value;
+            if (value.type == Value::DOUBLE_VAL) {
+                return Value(static_cast<int64_t>(std::any_cast<double>(value.data)));
+            }
+            if (value.type == Value::STRING_VAL) {
+                try {
+                    return Value(std::stoll(std::any_cast<std::string>(value.data)));
+                } catch (...) {
+                    throw TypeCastException(value.to_string(), token_type_to_string(target_type));
+                }
+            }
+            break;
         }
-    } catch (const std::exception& e) {
-        throw TypeCastException(value, type_to_string(type));
+        case TokenType::DOUBLE:
+        case TokenType::FLOAT: {
+            if (value.type == Value::DOUBLE_VAL) return value;
+            if (value.type == Value::INT_VAL) {
+                return Value(static_cast<double>(std::any_cast<int64_t>(value.data)));
+            }
+            if (value.type == Value::STRING_VAL) {
+                try {
+                    return Value(std::stod(std::any_cast<std::string>(value.data)));
+                } catch (...) {
+                    throw TypeCastException(value.to_string(), token_type_to_string(target_type));
+                }
+            }
+            break;
+        }
+        case TokenType::VARCHAR:
+        case TokenType::TEXT:
+        case TokenType::CHAR:
+            return Value(value.to_string());
+        case TokenType::BOOLEAN: {
+            if (value.type == Value::BOOL_VAL) return value;
+            if (value.type == Value::INT_VAL) {
+                return Value(std::any_cast<int64_t>(value.data) != 0);
+            }
+            if (value.type == Value::STRING_VAL) {
+                std::string s = std::any_cast<std::string>(value.data);
+                return Value(s == "true" || s == "1" || s == "TRUE" || s == "YES");
+            }
+            break;
+        }
+        default:
+            break;
     }
+    
+    return value;
 }
 
-std::string QueryExecutor::type_to_string(TokenType type) {
+std::string QueryExecutor::token_type_to_string(TokenType type) {
     switch (type) {
         case TokenType::INT: return "INT";
         case TokenType::BIGINT: return "BIGINT";
         case TokenType::DOUBLE: return "DOUBLE";
+        case TokenType::FLOAT: return "FLOAT";
         case TokenType::VARCHAR: return "VARCHAR";
+        case TokenType::CHAR: return "CHAR";
         case TokenType::BOOLEAN: return "BOOLEAN";
         case TokenType::TIMESTAMP: return "TIMESTAMP";
-        case TokenType::NUMBER: return "NUMBER";
-        case TokenType::STRING: return "STRING";
+        case TokenType::TEXT: return "TEXT";
         default: return "UNKNOWN";
+    }
+}
+
+void QueryExecutor::validate_row(const Row& row, const std::shared_ptr<Table>& table) {
+    // Check NOT NULL constraints
+    for (const auto& col_name : table->schema.not_null_columns) {
+        if (row.find(col_name) != row.end() && row.at(col_name).is_null()) {
+            throw NotNullException(col_name);
+        }
+    }
+    
+    // Check UNIQUE constraints
+    for (const auto& col_name : table->schema.unique_columns) {
+        if (row.find(col_name) == row.end()) continue;
+        
+        const Value& val = row.at(col_name);
+        if (val.is_null()) continue;  // NULL values don't violate UNIQUE
+        
+        for (const auto& existing_row : table->rows) {
+            if (existing_row.find(col_name) != existing_row.end()) {
+                const Value& existing_val = existing_row.at(col_name);
+                if (!existing_val.is_null() && val.to_string() == existing_val.to_string()) {
+                    throw UniqueConstraintException(col_name);
+                }
+            }
+        }
+    }
+}
+
+void QueryExecutor::validate_column_exists(const std::string& col_name, const std::shared_ptr<Table>& table) {
+    if (table->schema.column_index.find(col_name) == table->schema.column_index.end()) {
+        throw SQLValidationException("Column '" + col_name + "' does not exist in table '" + table->schema.name + "'");
     }
 }
 
