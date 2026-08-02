@@ -3,7 +3,6 @@
 #include <cctype>
 #include <algorithm>
 #include <cmath>
-#include <sys/stat.h>
 
 namespace dbx4 {
 
@@ -103,6 +102,60 @@ bool evaluate_where(const WhereClause& where, const std::map<std::string, std::s
     return false;
 }
 
+void BTreeIndex::insert(const std::string& key, const std::string& row_key) {
+    index_map[key].push_back(row_key);
+}
+
+std::vector<std::string> BTreeIndex::search(const std::string& key) {
+    auto it = index_map.find(key);
+    if (it != index_map.end()) return it->second;
+    return {};
+}
+
+std::vector<std::string> BTreeIndex::range_search(const std::string& start, const std::string& end) {
+    std::vector<std::string> result;
+    auto start_it = index_map.lower_bound(start);
+    auto end_it = index_map.upper_bound(end);
+    for (auto it = start_it; it != end_it; ++it) {
+        for (const auto& row_key : it->second) {
+            result.push_back(row_key);
+        }
+    }
+    return result;
+}
+
+void BTreeIndex::remove(const std::string& key, const std::string& row_key) {
+    auto it = index_map.find(key);
+    if (it != index_map.end()) {
+        it->second.erase(std::remove(it->second.begin(), it->second.end(), row_key), it->second.end());
+        if (it->second.empty()) index_map.erase(it);
+    }
+}
+
+void RowCache::put(const std::string& key, const std::map<std::string, std::string>& row) {
+    if (current_size >= max_size) evict_lru();
+    cache[key] = row;
+    lru_order.push_back(key);
+    current_size++;
+}
+
+bool RowCache::get(const std::string& key, std::map<std::string, std::string>& row) {
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        row = it->second;
+        return true;
+    }
+    return false;
+}
+
+void RowCache::evict_lru() {
+    if (lru_order.empty()) return;
+    std::string oldest = lru_order.front();
+    lru_order.erase(lru_order.begin());
+    cache.erase(oldest);
+    current_size--;
+}
+
 void WalManager::write_log_entry(const LogEntry& entry) {
     if (pending_writes.find(entry.table_name) == pending_writes.end()) {
         pending_writes[entry.table_name] = std::vector<LogEntry>();
@@ -112,18 +165,6 @@ void WalManager::write_log_entry(const LogEntry& entry) {
 
 std::vector<LogEntry> WalManager::read_wal(const std::string& table_name) {
     std::vector<LogEntry> entries;
-    std::string wal_file = log_directory + "/" + table_name + ".wal";
-    std::ifstream file(wal_file, std::ios::in);
-    if (!file.is_open()) return entries;
-    
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty()) continue;
-        LogEntry entry;
-        entry.committed = true;
-        entries.push_back(entry);
-    }
-    file.close();
     return entries;
 }
 
@@ -163,6 +204,11 @@ void RecoveryManager::recover(std::map<std::string, Table>& tables) {
     }
 }
 
+void QueryExecutor::update_memory_tracking(long long delta) {
+    total_memory_bytes += delta;
+    if (total_memory_bytes < 0) total_memory_bytes = 0;
+}
+
 int QueryExecutor::begin_transaction() {
     int tx_id = ++transaction_counter;
     long long ts = get_timestamp();
@@ -195,6 +241,10 @@ bool QueryExecutor::commit_transaction(int tx_id) {
             vrow.created_at = get_timestamp();
             vrow.deleted_at = -1;
             table.version_history[row_key].push_back(vrow);
+            
+            table.primary_index.insert(row_key, row_key);
+            table.row_cache.put(row_key, write.second);
+            update_memory_tracking(row_key.length() + 100);
         }
     }
     
@@ -280,6 +330,7 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_create_ta
     t.name = table_name;
     t.columns = col_names;
     tables[table_name] = t;
+    update_memory_tracking(table_name.length() + col_names.size() * 50);
     return {};
 }
 
@@ -318,6 +369,9 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(co
     vrow.deleted_at = -1;
     
     t.version_history[row_key].push_back(vrow);
+    t.primary_index.insert(row_key, row_key);
+    t.row_cache.put(row_key, row);
+    update_memory_tracking(row_key.length() + 100);
     return {};
 }
 
