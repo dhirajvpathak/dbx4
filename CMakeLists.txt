@@ -188,7 +188,7 @@ add_test(
 # ============================================================================
 
 # SQL Executor Tests
-add_executable(sql_executor_tests tests/sql_executor_tests.cpp)
+add_executable(sql_executor_tests tests/sql_executor_tests.cpp src/query_executor.cpp)
 target_include_directories(sql_executor_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(sql_executor_tests PRIVATE /std:c++17 /W4)
 
