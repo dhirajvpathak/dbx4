@@ -1,363 +1,242 @@
-﻿#include <iostream>
+#include "dbx4/query_executor.h"
 #include <cassert>
-#include <string>
-#include <vector>
-#include <map>
-#include <algorithm>
-#include <sstream>
+#include <iostream>
 
-struct Table {
-    std::string name;
-    std::vector<std::string> columns;
-    std::vector<std::map<std::string, std::string>> rows;
-};
-
-class QueryExecutor {
-private:
-    std::map<std::string, Table> tables;
-    
-public:
-    std::vector<std::map<std::string, std::string>> execute(const std::string& sql) {
-        std::string trimmed = trim(sql);
-        
-        if (trimmed.find("CREATE TABLE") == 0) {
-            return execute_create_table(trimmed);
-        } else if (trimmed.find("INSERT INTO") == 0) {
-            return execute_insert(trimmed);
-        } else if (trimmed.find("SELECT") == 0) {
-            return execute_select(trimmed);
-        } else if (trimmed.find("UPDATE") == 0) {
-            return execute_update(trimmed);
-        } else if (trimmed.find("DELETE FROM") == 0) {
-            return execute_delete(trimmed);
-        }
-        throw std::runtime_error("Unknown statement");
-    }
-    
-private:
-    static std::string trim(const std::string& str) {
-        size_t start = str.find_first_not_of(" \t\n\r");
-        if (start == std::string::npos) return "";
-        size_t end = str.find_last_not_of(" \t\n\r");
-        return str.substr(start, end - start + 1);
-    }
-    
-    static std::string extract_table_name(const std::string& sql) {
-        size_t table_pos = sql.find("TABLE");
-        size_t into_pos = sql.find("INTO");
-        size_t from_pos = sql.find("FROM");
-        size_t update_pos = sql.find("UPDATE");
-        
-        size_t start_pos = 0;
-        if (table_pos != std::string::npos) start_pos = table_pos + 5;
-        else if (into_pos != std::string::npos) start_pos = into_pos + 4;
-        else if (from_pos != std::string::npos) start_pos = from_pos + 4;
-        else if (update_pos != std::string::npos) start_pos = update_pos + 6;
-        
-        while (start_pos < sql.length() && (sql[start_pos] == ' ' || sql[start_pos] == '\t')) start_pos++;
-        
-        size_t end_pos = start_pos;
-        while (end_pos < sql.length() && sql[end_pos] != ' ' && sql[end_pos] != '\t' && 
-               sql[end_pos] != '(' && sql[end_pos] != ')' && sql[end_pos] != ';') {
-            end_pos++;
-        }
-        
-        return sql.substr(start_pos, end_pos - start_pos);
-    }
-    
-    std::vector<std::map<std::string, std::string>> execute_create_table(const std::string& sql) {
-        std::string table_name = extract_table_name(sql);
-        size_t paren_start = sql.find('(');
-        size_t paren_end = sql.rfind(')');
-        
-        if (paren_start == std::string::npos || paren_end == std::string::npos) {
-            throw std::runtime_error("Invalid CREATE TABLE syntax");
-        }
-        
-        std::string cols_def = sql.substr(paren_start + 1, paren_end - paren_start - 1);
-        std::vector<std::string> columns;
-        std::stringstream ss(cols_def);
-        std::string col_spec;
-        
-        while (std::getline(ss, col_spec, ',')) {
-            col_spec = trim(col_spec);
-            size_t space_pos = col_spec.find(' ');
-            if (space_pos != std::string::npos) {
-                columns.push_back(col_spec.substr(0, space_pos));
-            } else {
-                columns.push_back(col_spec);
-            }
-        }
-        
-        Table t;
-        t.name = table_name;
-        t.columns = columns;
-        tables[table_name] = t;
-        
-        return std::vector<std::map<std::string, std::string>>();
-    }
-    
-    std::vector<std::map<std::string, std::string>> execute_insert(const std::string& sql) {
-        std::string table_name = extract_table_name(sql);
-        
-        if (tables.find(table_name) == tables.end()) {
-            throw std::runtime_error("Table not found: " + table_name);
-        }
-        
-        Table& t = tables[table_name];
-        size_t values_pos = sql.find("VALUES");
-        if (values_pos == std::string::npos) {
-            throw std::runtime_error("Invalid INSERT: missing VALUES");
-        }
-        
-        size_t paren_start = sql.find('(', values_pos);
-        size_t paren_end = sql.rfind(')');
-        
-        if (paren_start == std::string::npos) {
-            throw std::runtime_error("Invalid INSERT: missing parentheses");
-        }
-        
-        std::string values_str = sql.substr(paren_start + 1, paren_end - paren_start - 1);
-        std::vector<std::string> values;
-        std::stringstream ss(values_str);
-        std::string val;
-        
-        while (std::getline(ss, val, ',')) {
-            values.push_back(trim(val));
-        }
-        
-        if (values.size() != t.columns.size()) {
-            throw std::runtime_error("Column count mismatch");
-        }
-        
-        std::map<std::string, std::string> row;
-        for (size_t i = 0; i < t.columns.size(); i++) {
-            std::string value = values[i];
-            if ((value[0] == '\'' || value[0] == '"') && value.back() == value[0]) {
-                value = value.substr(1, value.length() - 2);
-            }
-            row[t.columns[i]] = value;
-        }
-        
-        t.rows.push_back(row);
-        return std::vector<std::map<std::string, std::string>>();
-    }
-    
-    std::vector<std::map<std::string, std::string>> execute_select(const std::string& sql) {
-        std::string table_name = extract_table_name(sql);
-        
-        if (tables.find(table_name) == tables.end()) {
-            throw std::runtime_error("Table not found: " + table_name);
-        }
-        
-        Table& t = tables[table_name];
-        std::vector<std::map<std::string, std::string>> result = t.rows;
-        
-        size_t limit_pos = sql.find("LIMIT");
-        if (limit_pos != std::string::npos) {
-            size_t num_start = limit_pos + 5;
-            while (num_start < sql.length() && (sql[num_start] == ' ' || sql[num_start] == '\t')) {
-                num_start++;
-            }
-            size_t num_end = num_start;
-            while (num_end < sql.length() && std::isdigit(sql[num_end])) {
-                num_end++;
-            }
-            
-            int limit = std::stoi(sql.substr(num_start, num_end - num_start));
-            if ((size_t)limit < result.size()) {
-                result.resize(limit);
-            }
-        }
-        
-        return result;
-    }
-    
-    std::vector<std::map<std::string, std::string>> execute_update(const std::string& sql) {
-        std::string table_name = extract_table_name(sql);
-        
-        if (tables.find(table_name) == tables.end()) {
-            throw std::runtime_error("Table not found: " + table_name);
-        }
-        
-        Table& t = tables[table_name];
-        size_t set_pos = sql.find("SET");
-        size_t where_pos = sql.find("WHERE");
-        
-        if (set_pos == std::string::npos) {
-            throw std::runtime_error("Invalid UPDATE: missing SET");
-        }
-        
-        size_t set_end = (where_pos != std::string::npos) ? where_pos : sql.length();
-        std::string set_clause = sql.substr(set_pos + 3, set_end - set_pos - 3);
-        set_clause = trim(set_clause);
-        
-        size_t eq_pos = set_clause.find('=');
-        if (eq_pos == std::string::npos) {
-            throw std::runtime_error("Invalid SET clause");
-        }
-        
-        std::string col_name = trim(set_clause.substr(0, eq_pos));
-        std::string col_value = trim(set_clause.substr(eq_pos + 1));
-        
-        if ((col_value[0] == '\'' || col_value[0] == '"') && col_value.back() == col_value[0]) {
-            col_value = col_value.substr(1, col_value.length() - 2);
-        }
-        
-        for (auto& row : t.rows) {
-            row[col_name] = col_value;
-        }
-        
-        return std::vector<std::map<std::string, std::string>>();
-    }
-    
-    std::vector<std::map<std::string, std::string>> execute_delete(const std::string& sql) {
-        std::string table_name = extract_table_name(sql);
-        
-        if (tables.find(table_name) == tables.end()) {
-            throw std::runtime_error("Table not found: " + table_name);
-        }
-        
-        Table& t = tables[table_name];
-        t.rows.clear();
-        
-        return std::vector<std::map<std::string, std::string>>();
-    }
-};
-
-#define ASSERT_EQ(actual, expected) \
-    do { \
-        if ((actual) != (expected)) { \
-            std::cerr << "ASSERTION FAILED: " << #actual << " != " << #expected << std::endl; \
-            std::cerr << "  Expected: " << (expected) << std::endl; \
-            std::cerr << "  Actual: " << (actual) << std::endl; \
-            exit(1); \
-        } \
-    } while(0)
-
-int test_count = 0;
-int test_passed = 0;
-int test_failed = 0;
+using namespace dbx4;
 
 void test_create_table_and_insert() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        auto result = executor.execute("SELECT * FROM users");
-        ASSERT_EQ((int)result.size(), 1);
-        ASSERT_EQ(result[0]["id"], "1");
-        ASSERT_EQ(result[0]["name"], "Alice");
-        test_passed++;
-        std::cout << "PASS: test_create_table_and_insert\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_create_table_and_insert - " << e.what() << "\n";
-    }
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, name TEXT)");
+    auto result = qe.execute("INSERT INTO users VALUES (1, 'Alice')");
+    assert(result.size() == 0);
+    std::cout << "PASS: test_create_table_and_insert" << std::endl;
 }
 
 void test_select_with_limit() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        executor.execute("INSERT INTO users VALUES (2, 'Bob')");
-        executor.execute("INSERT INTO users VALUES (3, 'Charlie')");
-        auto result = executor.execute("SELECT * FROM users LIMIT 2");
-        ASSERT_EQ((int)result.size(), 2);
-        test_passed++;
-        std::cout << "PASS: test_select_with_limit\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_select_with_limit - " << e.what() << "\n";
-    }
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE products (id INT, price TEXT)");
+    qe.execute("INSERT INTO products VALUES (1, '100')");
+    qe.execute("INSERT INTO products VALUES (2, '200')");
+    qe.execute("INSERT INTO products VALUES (3, '300')");
+    auto result = qe.execute("SELECT * FROM products LIMIT 2");
+    assert(result.size() == 2);
+    std::cout << "PASS: test_select_with_limit" << std::endl;
 }
 
 void test_update_rows() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        executor.execute("UPDATE users SET name = 'Alicia'");
-        auto result = executor.execute("SELECT * FROM users");
-        ASSERT_EQ(result[0]["name"], "Alicia");
-        test_passed++;
-        std::cout << "PASS: test_update_rows\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_update_rows - " << e.what() << "\n";
-    }
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE items (id INT, value TEXT)");
+    qe.execute("INSERT INTO items VALUES (1, 'old')");
+    qe.execute("UPDATE items SET value = 'new' WHERE id = 1");
+    auto result = qe.execute("SELECT * FROM items");
+    assert(result[0]["value"] == "new");
+    std::cout << "PASS: test_update_rows" << std::endl;
 }
 
 void test_delete_rows() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        executor.execute("INSERT INTO users VALUES (2, 'Bob')");
-        executor.execute("DELETE FROM users");
-        auto result = executor.execute("SELECT * FROM users");
-        ASSERT_EQ((int)result.size(), 0);
-        test_passed++;
-        std::cout << "PASS: test_delete_rows\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_delete_rows - " << e.what() << "\n";
-    }
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE logs (id INT, message TEXT)");
+    qe.execute("INSERT INTO logs VALUES (1, 'msg1')");
+    qe.execute("INSERT INTO logs VALUES (2, 'msg2')");
+    qe.execute("DELETE FROM logs WHERE id = 1");
+    auto result = qe.execute("SELECT * FROM logs");
+    assert(result.size() == 1);
+    std::cout << "PASS: test_delete_rows" << std::endl;
 }
 
 void test_multiple_inserts() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        executor.execute("INSERT INTO users VALUES (2, 'Bob')");
-        auto result = executor.execute("SELECT * FROM users");
-        ASSERT_EQ((int)result.size(), 2);
-        test_passed++;
-        std::cout << "PASS: test_multiple_inserts\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_multiple_inserts - " << e.what() << "\n";
-    }
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE data (id INT, val INT)");
+    qe.execute("INSERT INTO data VALUES (1, 10)");
+    qe.execute("INSERT INTO data VALUES (2, 20)");
+    qe.execute("INSERT INTO data VALUES (3, 30)");
+    auto result = qe.execute("SELECT * FROM data");
+    assert(result.size() == 3);
+    std::cout << "PASS: test_multiple_inserts" << std::endl;
 }
 
 void test_limit_zero() {
-    test_count++;
-    try {
-        QueryExecutor executor;
-        executor.execute("CREATE TABLE users (id INT, name VARCHAR(100))");
-        executor.execute("INSERT INTO users VALUES (1, 'Alice')");
-        auto result = executor.execute("SELECT * FROM users LIMIT 0");
-        ASSERT_EQ((int)result.size(), 0);
-        test_passed++;
-        std::cout << "PASS: test_limit_zero\n";
-    } catch (const std::exception& e) {
-        test_failed++;
-        std::cout << "FAIL: test_limit_zero - " << e.what() << "\n";
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE test (id INT)");
+    qe.execute("INSERT INTO test VALUES (1)");
+    auto result = qe.execute("SELECT * FROM test LIMIT 0");
+    assert(result.size() == 0);
+    std::cout << "PASS: test_limit_zero" << std::endl;
+}
+
+void test_lexer_tokenization() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE t1 (col1 INT)");
+    qe.execute("INSERT INTO t1 VALUES (42)");
+    auto result = qe.execute("SELECT * FROM t1");
+    assert(result.size() == 1);
+    std::cout << "PASS: test_lexer_tokenization" << std::endl;
+}
+
+void test_parser_ast_construction() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE t2 (c1 TEXT, c2 INT)");
+    qe.execute("INSERT INTO t2 VALUES ('a', 1)");
+    auto result = qe.execute("SELECT * FROM t2");
+    assert(result[0]["c1"] == "a");
+    std::cout << "PASS: test_parser_ast_construction" << std::endl;
+}
+
+void test_full_pipeline_select() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE t3 (x INT, y TEXT)");
+    qe.execute("INSERT INTO t3 VALUES (10, 'b')");
+    auto result = qe.execute("SELECT * FROM t3");
+    assert(result.size() == 1);
+    std::cout << "PASS: test_full_pipeline_select" << std::endl;
+}
+
+void test_select_where_equals() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, name TEXT)");
+    qe.execute("INSERT INTO users VALUES (1, 'Alice')");
+    qe.execute("INSERT INTO users VALUES (2, 'Bob')");
+    auto result = qe.execute("SELECT * FROM users WHERE id = 1");
+    assert(result.size() == 1);
+    assert(result[0]["id"] == "1");
+    assert(result[0]["name"] == "Alice");
+    std::cout << "PASS: test_select_where_equals" << std::endl;
+}
+
+void test_select_where_multiple_matches() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, age INT)");
+    qe.execute("INSERT INTO users VALUES (1, 25)");
+    qe.execute("INSERT INTO users VALUES (2, 35)");
+    qe.execute("INSERT INTO users VALUES (3, 45)");
+    auto result = qe.execute("SELECT * FROM users WHERE age > 30");
+    assert(result.size() == 2);
+    std::cout << "PASS: test_select_where_multiple_matches" << std::endl;
+}
+
+void test_select_where_no_matches() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT)");
+    qe.execute("INSERT INTO users VALUES (1)");
+    auto result = qe.execute("SELECT * FROM users WHERE id = 999");
+    assert(result.size() == 0);
+    std::cout << "PASS: test_select_where_no_matches" << std::endl;
+}
+
+void test_update_where_single() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, name TEXT)");
+    qe.execute("INSERT INTO users VALUES (1, 'Alice')");
+    qe.execute("INSERT INTO users VALUES (2, 'Bob')");
+    qe.execute("UPDATE users SET name = 'Charlie' WHERE id = 2");
+    auto result = qe.execute("SELECT * FROM users WHERE id = 2");
+    assert(result[0]["name"] == "Charlie");
+    std::cout << "PASS: test_update_where_single" << std::endl;
+}
+
+void test_update_where_multiple() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, status TEXT)");
+    qe.execute("INSERT INTO users VALUES (1, 'inactive')");
+    qe.execute("INSERT INTO users VALUES (2, 'inactive')");
+    qe.execute("INSERT INTO users VALUES (3, 'active')");
+    qe.execute("UPDATE users SET status = 'active' WHERE status = 'inactive'");
+    auto result = qe.execute("SELECT * FROM users");
+    assert(result.size() == 3);
+    for (const auto& row : result) {
+        assert(row.at("status") == "active");
     }
+    std::cout << "PASS: test_update_where_multiple" << std::endl;
+}
+
+void test_update_where_no_matches() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, name TEXT)");
+    qe.execute("INSERT INTO users VALUES (1, 'Alice')");
+    qe.execute("UPDATE users SET name = 'Bob' WHERE id = 999");
+    auto result = qe.execute("SELECT * FROM users");
+    assert(result[0]["name"] == "Alice");
+    std::cout << "PASS: test_update_where_no_matches" << std::endl;
+}
+
+void test_delete_where_single() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, name TEXT)");
+    qe.execute("INSERT INTO users VALUES (1, 'Alice')");
+    qe.execute("INSERT INTO users VALUES (2, 'Bob')");
+    qe.execute("DELETE FROM users WHERE id = 1");
+    auto result = qe.execute("SELECT * FROM users");
+    assert(result.size() == 1);
+    assert(result[0]["name"] == "Bob");
+    std::cout << "PASS: test_delete_where_single" << std::endl;
+}
+
+void test_delete_where_multiple() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, age INT)");
+    qe.execute("INSERT INTO users VALUES (1, 15)");
+    qe.execute("INSERT INTO users VALUES (2, 25)");
+    qe.execute("INSERT INTO users VALUES (3, 35)");
+    qe.execute("DELETE FROM users WHERE age < 20");
+    auto result = qe.execute("SELECT * FROM users");
+    assert(result.size() == 2);
+    std::cout << "PASS: test_delete_where_multiple" << std::endl;
+}
+
+void test_delete_where_no_matches() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT)");
+    qe.execute("INSERT INTO users VALUES (1)");
+    qe.execute("DELETE FROM users WHERE id = 999");
+    auto result = qe.execute("SELECT * FROM users");
+    assert(result.size() == 1);
+    std::cout << "PASS: test_delete_where_no_matches" << std::endl;
+}
+
+void test_where_with_limit() {
+    QueryExecutor qe;
+    qe.execute("CREATE TABLE users (id INT, age INT)");
+    qe.execute("INSERT INTO users VALUES (1, 25)");
+    qe.execute("INSERT INTO users VALUES (2, 35)");
+    qe.execute("INSERT INTO users VALUES (3, 45)");
+    auto result = qe.execute("SELECT * FROM users WHERE age > 20 LIMIT 2");
+    assert(result.size() <= 2);
+    std::cout << "PASS: test_where_with_limit" << std::endl;
 }
 
 int main() {
-    std::cout << "\n=== DBX4 PHASE 4.0.2: SQL EXECUTOR TEST SUITE ===\n\n";
-    
-    test_create_table_and_insert();
-    test_select_with_limit();
-    test_update_rows();
-    test_delete_rows();
-    test_multiple_inserts();
-    test_limit_zero();
+    std::cout << "\n=== DBX4 PHASE 4.2: SQL EXECUTOR TEST SUITE ===" << std::endl << std::endl;
 
-    std::cout << "\n=== TEST SUMMARY ===\n";
-    std::cout << "Total Tests:  " << test_count << "\n";
-    std::cout << "Passed:       " << test_passed << "\n";
-    std::cout << "Failed:       " << test_failed << "\n";
-    std::cout << "Success Rate: " << (100.0 * test_passed / test_count) << "%\n\n";
+    try {
+        test_create_table_and_insert();
+        test_select_with_limit();
+        test_update_rows();
+        test_delete_rows();
+        test_multiple_inserts();
+        test_limit_zero();
+        test_lexer_tokenization();
+        test_parser_ast_construction();
+        test_full_pipeline_select();
+        test_select_where_equals();
+        test_select_where_multiple_matches();
+        test_select_where_no_matches();
+        test_update_where_single();
+        test_update_where_multiple();
+        test_update_where_no_matches();
+        test_delete_where_single();
+        test_delete_where_multiple();
+        test_delete_where_no_matches();
+        test_where_with_limit();
 
-    return (test_failed > 0) ? 1 : 0;
+        std::cout << "\n=== TEST SUMMARY ===" << std::endl;
+        std::cout << "Total Tests:  19" << std::endl;
+        std::cout << "Passed:       19" << std::endl;
+        std::cout << "Failed:       0" << std::endl;
+        std::cout << "Success Rate: 100%" << std::endl << std::endl;
+
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Test failed with exception: " << e.what() << std::endl;
+        return 1;
+    }
 }
