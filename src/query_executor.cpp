@@ -3,12 +3,11 @@
 #include <cctype>
 #include <algorithm>
 #include <cmath>
+#include <sys/stat.h>
 
 namespace dbx4 {
 
-bool is_whitespace(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
+bool is_whitespace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
 std::string trim(const std::string& str) {
     size_t start = 0;
@@ -104,6 +103,66 @@ bool evaluate_where(const WhereClause& where, const std::map<std::string, std::s
     return false;
 }
 
+void WalManager::write_log_entry(const LogEntry& entry) {
+    if (pending_writes.find(entry.table_name) == pending_writes.end()) {
+        pending_writes[entry.table_name] = std::vector<LogEntry>();
+    }
+    pending_writes[entry.table_name].push_back(entry);
+}
+
+std::vector<LogEntry> WalManager::read_wal(const std::string& table_name) {
+    std::vector<LogEntry> entries;
+    std::string wal_file = log_directory + "/" + table_name + ".wal";
+    std::ifstream file(wal_file, std::ios::in);
+    if (!file.is_open()) return entries;
+    
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        LogEntry entry;
+        entry.committed = true;
+        entries.push_back(entry);
+    }
+    file.close();
+    return entries;
+}
+
+void WalManager::flush_wal() {
+    for (auto& pair : pending_writes) {
+        std::string wal_file = log_directory + "/" + pair.first + ".wal";
+        std::ofstream file(wal_file, std::ios::app);
+        if (file.is_open()) {
+            for (const auto& entry : pair.second) {
+                file << entry.timestamp << "|" << entry.tx_id << "|" << (int)entry.op << "\n";
+            }
+            file.close();
+        }
+    }
+    pending_writes.clear();
+}
+
+void WalManager::clear_wal(const std::string& table_name) {
+    std::string wal_file = log_directory + "/" + table_name + ".wal";
+    std::remove(wal_file.c_str());
+}
+
+void RecoveryManager::recover(std::map<std::string, Table>& tables) {
+    for (auto& table_pair : tables) {
+        std::vector<LogEntry> entries = wal_manager.read_wal(table_pair.first);
+        for (const auto& entry : entries) {
+            if (entry.committed && entry.op == OpType::INSERT) {
+                std::string row_key = table_pair.first + ":recovered";
+                VersionedRow vrow;
+                vrow.data = entry.row_data;
+                vrow.version_id = entry.tx_id;
+                vrow.created_at = entry.timestamp;
+                vrow.deleted_at = -1;
+                table_pair.second.version_history[row_key].push_back(vrow);
+            }
+        }
+    }
+}
+
 int QueryExecutor::begin_transaction() {
     int tx_id = ++transaction_counter;
     long long ts = get_timestamp();
@@ -126,6 +185,9 @@ bool QueryExecutor::commit_transaction(int tx_id) {
         std::string table_name = row_key.substr(0, row_key.find(':'));
         
         if (tables.find(table_name) != tables.end()) {
+            LogEntry log_entry(get_timestamp(), tx_id, OpType::INSERT, table_name, write.second);
+            wal_manager.write_log_entry(log_entry);
+            
             auto& table = tables[table_name];
             VersionedRow vrow;
             vrow.data = write.second;
@@ -136,6 +198,7 @@ bool QueryExecutor::commit_transaction(int tx_id) {
         }
     }
     
+    wal_manager.flush_wal();
     tx.state = TransactionState::COMMITTED;
     active_transactions.erase(tx_id);
     return true;
@@ -151,6 +214,10 @@ void QueryExecutor::rollback_transaction(int tx_id) {
     tx.write_set.clear();
     tx.read_set.clear();
     active_transactions.erase(tx_id);
+}
+
+void QueryExecutor::recover_from_wal() {
+    recovery_manager.recover(tables);
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute(const std::string& sql) {

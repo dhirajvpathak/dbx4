@@ -5,9 +5,31 @@
 #include <map>
 #include <stdexcept>
 #include <memory>
-#include <chrono>
+#include <fstream>
+#include <sstream>
 
 namespace dbx4 {
+
+enum class OpType {
+    INSERT,
+    UPDATE,
+    DELETE,
+    COMMIT,
+    ROLLBACK
+};
+
+struct LogEntry {
+    long long timestamp;
+    int tx_id;
+    OpType op;
+    std::string table_name;
+    std::map<std::string, std::string> row_data;
+    bool committed;
+    
+    LogEntry() : timestamp(0), tx_id(0), op(OpType::INSERT), committed(false) {}
+    LogEntry(long long ts, int id, OpType o, const std::string& t, const std::map<std::string, std::string>& d)
+        : timestamp(ts), tx_id(id), op(o), table_name(t), row_data(d), committed(false) {}
+};
 
 class Value {
 public:
@@ -64,9 +86,36 @@ struct Table {
     std::map<std::string, std::vector<VersionedRow>> version_history;
 };
 
+class WalManager {
+public:
+    WalManager(const std::string& log_dir = "/tmp/dbx4_wal") : log_directory(log_dir) {}
+    
+    void write_log_entry(const LogEntry& entry);
+    std::vector<LogEntry> read_wal(const std::string& table_name);
+    void flush_wal();
+    void clear_wal(const std::string& table_name);
+    
+private:
+    std::string log_directory;
+    std::map<std::string, std::vector<LogEntry>> pending_writes;
+};
+
+class RecoveryManager {
+public:
+    RecoveryManager(WalManager& wal) : wal_manager(wal) {}
+    
+    void recover(std::map<std::string, Table>& tables);
+    
+private:
+    WalManager& wal_manager;
+};
+
 class QueryExecutor {
 public:
-    QueryExecutor() : transaction_counter(0), clock(0) {}
+    QueryExecutor(const std::string& log_dir = "/tmp/dbx4_wal") 
+        : transaction_counter(0), clock(0), wal_manager(log_dir), recovery_manager(wal_manager) {
+        recover_from_wal();
+    }
     
     std::vector<std::map<std::string, std::string>> execute(const std::string& sql);
     
@@ -75,11 +124,14 @@ private:
     std::map<int, TransactionContext> active_transactions;
     int transaction_counter;
     long long clock;
+    WalManager wal_manager;
+    RecoveryManager recovery_manager;
     
     long long get_timestamp() { return ++clock; }
     int begin_transaction();
     bool commit_transaction(int tx_id);
     void rollback_transaction(int tx_id);
+    void recover_from_wal();
     
     std::vector<std::map<std::string, std::string>> execute_create_table(const std::string& sql);
     std::vector<std::map<std::string, std::string>> execute_insert(const std::string& sql);
