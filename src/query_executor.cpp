@@ -1,436 +1,221 @@
-// ============================================================================
-// DBX4 QUERY EXECUTION ENGINE
-// Full SQL query parsing, planning, and execution
-// ============================================================================
-
+#include "dbx4/query_executor.h"
 #include <iostream>
-#include <string>
-#include <vector>
-#include <map>
-#include <memory>
-#include <sstream>
+#include <cctype>
 #include <algorithm>
-#include <regex>
-#include <chrono>
-#include <iomanip>
 #include <cmath>
 
 namespace dbx4 {
 
-// ============================================================================
-// SQL TOKEN TYPES
-// ============================================================================
-
-enum class TokenType {
-    KEYWORD, IDENTIFIER, LITERAL, OPERATOR, LPAREN, RPAREN, COMMA, SEMICOLON, UNKNOWN
-};
-
-struct Token {
-    TokenType type;
-    std::string value;
-};
-
-// ============================================================================
-// SQL PARSER
-// ============================================================================
-
-class SQLParser {
-private:
-    std::vector<Token> tokens_;
-    size_t current_pos_;
-
-    std::vector<Token> tokenize(const std::string& sql) {
-        std::vector<Token> tokens;
-        std::istringstream iss(sql);
-        std::string word;
-
-        while (iss >> word) {
-            Token token;
-            
-            std::string upper_word = word;
-            std::transform(upper_word.begin(), upper_word.end(), upper_word.begin(), ::toupper);
-            
-            if (upper_word == "SELECT" || upper_word == "FROM" || upper_word == "WHERE" ||
-                upper_word == "INSERT" || upper_word == "UPDATE" || upper_word == "DELETE" ||
-                upper_word == "CREATE" || upper_word == "DROP" || upper_word == "ALTER" ||
-                upper_word == "TABLE" || upper_word == "INDEX" || upper_word == "AND" ||
-                upper_word == "OR" || upper_word == "ORDER" || upper_word == "BY" ||
-                upper_word == "GROUP" || upper_word == "HAVING" || upper_word == "JOIN" ||
-                upper_word == "INNER" || upper_word == "LEFT" || upper_word == "RIGHT" ||
-                upper_word == "AS" || upper_word == "ON" || upper_word == "LIMIT" ||
-                upper_word == "OFFSET" || upper_word == "DISTINCT" || upper_word == "ALL") {
-                token.type = TokenType::KEYWORD;
-            } else if (word == "(" || word == ")") {
-                token.type = word == "(" ? TokenType::LPAREN : TokenType::RPAREN;
-            } else if (word == "," || word == ";") {
-                token.type = word == "," ? TokenType::COMMA : TokenType::SEMICOLON;
-            } else if (word == "=" || word == ">" || word == "<" || word == ">=" ||
-                      word == "<=" || word == "!=" || word == "<>") {
-                token.type = TokenType::OPERATOR;
-            } else if (word[0] == '\'' || word[0] == '"') {
-                token.type = TokenType::LITERAL;
-            } else if (std::isdigit(word[0])) {
-                token.type = TokenType::LITERAL;
-            } else {
-                token.type = TokenType::IDENTIFIER;
-            }
-            
-            token.value = word;
-            tokens.push_back(token);
-        }
-        
-        return tokens;
-    }
-
-public:
-    struct ParsedQuery {
-        std::string query_type;
-        std::vector<std::string> select_columns;
-        std::string table_name;
-        std::vector<std::pair<std::string, std::string>> where_clauses;
-        std::vector<std::string> order_by;
-        size_t limit;
-        size_t offset;
-    };
-
-    ParsedQuery parse(const std::string& sql) {
-        tokens_ = tokenize(sql);
-        current_pos_ = 0;
-        
-        ParsedQuery query;
-        query.limit = 0;
-        query.offset = 0;
-        
-        if (current_pos_ < tokens_.size()) {
-            std::string first_token = tokens_[current_pos_].value;
-            std::transform(first_token.begin(), first_token.end(), first_token.begin(), ::toupper);
-            
-            if (first_token == "SELECT") {
-                query.query_type = "SELECT";
-                parse_select(query);
-            } else if (first_token == "INSERT") {
-                query.query_type = "INSERT";
-            } else if (first_token == "UPDATE") {
-                query.query_type = "UPDATE";
-            } else if (first_token == "DELETE") {
-                query.query_type = "DELETE";
-                parse_delete(query);
-            }
-        }
-        
-        return query;
-    }
-
-private:
-    void parse_select(ParsedQuery& query) {
-        current_pos_++;
-        
-        while (current_pos_ < tokens_.size()) {
-            std::string upper_val = tokens_[current_pos_].value;
-            std::transform(upper_val.begin(), upper_val.end(), upper_val.begin(), ::toupper);
-            
-            if (upper_val == "FROM") {
-                current_pos_++;
-                if (current_pos_ < tokens_.size()) {
-                    query.table_name = tokens_[current_pos_].value;
-                }
-                current_pos_++;
-            } else if (upper_val == "WHERE") {
-                current_pos_++;
-                parse_where(query);
-            } else if (upper_val == "ORDER") {
-                current_pos_++;
-                if (current_pos_ < tokens_.size() && tokens_[current_pos_].value == "BY") {
-                    current_pos_++;
-                    while (current_pos_ < tokens_.size() && tokens_[current_pos_].type != TokenType::SEMICOLON) {
-                        query.order_by.push_back(tokens_[current_pos_].value);
-                        current_pos_++;
-                    }
-                }
-            } else if (upper_val == "LIMIT") {
-                current_pos_++;
-                if (current_pos_ < tokens_.size()) {
-                    query.limit = std::stoi(tokens_[current_pos_].value);
-                }
-                current_pos_++;
-            } else if (upper_val == "*") {
-                query.select_columns.push_back("*");
-                current_pos_++;
-            } else if (tokens_[current_pos_].type == TokenType::IDENTIFIER || 
-                      tokens_[current_pos_].type == TokenType::LITERAL) {
-                query.select_columns.push_back(tokens_[current_pos_].value);
-                current_pos_++;
-            } else {
-                current_pos_++;
-            }
-        }
-    }
-
-    void parse_where(ParsedQuery& query) {
-        while (current_pos_ < tokens_.size() && 
-               tokens_[current_pos_].value != ";" && 
-               tokens_[current_pos_].value != "ORDER") {
-            
-            std::string column = tokens_[current_pos_].value;
-            current_pos_++;
-            
-            if (current_pos_ < tokens_.size() && tokens_[current_pos_].type == TokenType::OPERATOR) {
-                std::string op = tokens_[current_pos_].value;
-                current_pos_++;
-                
-                if (current_pos_ < tokens_.size()) {
-                    std::string value = tokens_[current_pos_].value;
-                    query.where_clauses.push_back({column, value});
-                    current_pos_++;
-                }
-            }
-            
-            if (current_pos_ < tokens_.size()) {
-                std::string upper_val = tokens_[current_pos_].value;
-                std::transform(upper_val.begin(), upper_val.end(), upper_val.begin(), ::toupper);
-                
-                if (upper_val != "AND" && upper_val != "OR") {
-                    break;
-                }
-                current_pos_++;
-            }
-        }
-    }
-
-    void parse_delete(ParsedQuery& query) {
-        current_pos_++;
-        
-        while (current_pos_ < tokens_.size()) {
-            std::string upper_val = tokens_[current_pos_].value;
-            std::transform(upper_val.begin(), upper_val.end(), upper_val.begin(), ::toupper);
-            
-            if (upper_val == "FROM") {
-                current_pos_++;
-                if (current_pos_ < tokens_.size()) {
-                    query.table_name = tokens_[current_pos_].value;
-                }
-                current_pos_++;
-            } else if (upper_val == "WHERE") {
-                current_pos_++;
-                parse_where(query);
-            } else {
-                current_pos_++;
-            }
-        }
-    }
-};
-
-// ============================================================================
-// QUERY OPTIMIZER
-// ============================================================================
-
-class QueryOptimizer {
-public:
-    struct ExecutionPlan {
-        std::string operation;
-        std::string table_name;
-        std::vector<std::string> columns;
-        std::vector<std::pair<std::string, std::string>> filters;
-        float estimated_cost;
-        size_t estimated_rows;
-    };
-
-    ExecutionPlan optimize(const SQLParser::ParsedQuery& query) {
-        ExecutionPlan plan;
-        
-        plan.table_name = query.table_name;
-        plan.columns = query.select_columns;
-        plan.filters = query.where_clauses;
-        
-        if (query.query_type == "SELECT") {
-            plan.operation = "TableScan";
-            plan.estimated_rows = 1000;
-            
-            if (!query.where_clauses.empty()) {
-                plan.operation = "IndexScan";
-                plan.estimated_rows = 100;
-            }
-            
-            if (!query.order_by.empty()) {
-                plan.operation = "Sort+Scan";
-                plan.estimated_rows = 100;
-            }
-        } else if (query.query_type == "DELETE") {
-            plan.operation = "Delete";
-            plan.estimated_rows = query.where_clauses.empty() ? 1000 : 10;
-        }
-        
-        plan.estimated_cost = calculate_cost(plan);
-        return plan;
-    }
-
-private:
-    float calculate_cost(const ExecutionPlan& plan) {
-        float base_cost = 100.0f;
-        
-        if (plan.operation == "TableScan") {
-            base_cost *= plan.estimated_rows * 0.1f;
-        } else if (plan.operation == "IndexScan") {
-            base_cost *= std::log(plan.estimated_rows) * 10.0f;
-        } else if (plan.operation == "Sort+Scan") {
-            base_cost *= plan.estimated_rows * std::log(plan.estimated_rows);
-        }
-        
-        base_cost *= (1.0f + plan.filters.size() * 0.2f);
-        return base_cost;
-    }
-};
-
-// ============================================================================
-// QUERY EXECUTOR
-// ============================================================================
-
-class QueryExecutor {
-private:
-    SQLParser parser_;
-    QueryOptimizer optimizer_;
-    
-    uint64_t total_queries_;
-    uint64_t total_rows_scanned_;
-    uint64_t total_execution_time_ms_;
-
-public:
-    QueryExecutor() : total_queries_(0), total_rows_scanned_(0), total_execution_time_ms_(0) {}
-
-    struct ExecutionResult {
-        bool success;
-        std::vector<std::vector<std::string>> rows;
-        size_t rows_affected;
-        float execution_time_ms;
-        std::string message;
-    };
-
-    ExecutionResult execute(const std::string& sql) {
-        auto start = std::chrono::high_resolution_clock::now();
-        ExecutionResult result;
-        result.success = false;
-        result.rows_affected = 0;
-        result.execution_time_ms = 0.0f;
-        
-        total_queries_++;
-        
-        try {
-            SQLParser::ParsedQuery parsed = parser_.parse(sql);
-            QueryOptimizer::ExecutionPlan plan = optimizer_.optimize(parsed);
-            
-            if (parsed.query_type == "SELECT") {
-                result = execute_select(parsed, plan);
-            } else if (parsed.query_type == "DELETE") {
-                result = execute_delete(parsed, plan);
-            } else if (parsed.query_type == "INSERT") {
-                result = execute_insert(parsed, plan);
-            } else if (parsed.query_type == "UPDATE") {
-                result = execute_update(parsed, plan);
-            }
-            
-            result.success = true;
-        } catch (const std::exception& e) {
-            result.message = std::string(e.what());
-        }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        result.execution_time_ms = duration.count() / 1000.0f;
-        total_execution_time_ms_ += static_cast<uint64_t>(result.execution_time_ms);
-        
-        return result;
-    }
-
-    uint64_t get_total_queries() const { return total_queries_; }
-    float get_average_execution_time() const {
-        return total_queries_ == 0 ? 0.0f : static_cast<float>(total_execution_time_ms_) / total_queries_;
-    }
-
-private:
-    ExecutionResult execute_select(const SQLParser::ParsedQuery& query, 
-                                  const QueryOptimizer::ExecutionPlan& plan) {
-        ExecutionResult result;
-        result.rows_affected = plan.estimated_rows;
-        
-        for (size_t i = 0; i < std::min(plan.estimated_rows, size_t(10)); i++) {
-            std::vector<std::string> row;
-            for (const auto& col : plan.columns) {
-                row.push_back("value_" + std::to_string(i));
-            }
-            result.rows.push_back(row);
-        }
-        
-        total_rows_scanned_ += plan.estimated_rows;
-        result.message = "Executed " + plan.operation + " on table " + plan.table_name;
-        return result;
-    }
-
-    ExecutionResult execute_delete(const SQLParser::ParsedQuery& query,
-                                  const QueryOptimizer::ExecutionPlan& plan) {
-        ExecutionResult result;
-        result.rows_affected = plan.estimated_rows;
-        result.message = "Deleted " + std::to_string(plan.estimated_rows) + " rows";
-        return result;
-    }
-
-    ExecutionResult execute_insert(const SQLParser::ParsedQuery& query,
-                                  const QueryOptimizer::ExecutionPlan& plan) {
-        ExecutionResult result;
-        result.rows_affected = 1;
-        result.message = "Inserted 1 row";
-        return result;
-    }
-
-    ExecutionResult execute_update(const SQLParser::ParsedQuery& query,
-                                  const QueryOptimizer::ExecutionPlan& plan) {
-        ExecutionResult result;
-        result.rows_affected = plan.estimated_rows;
-        result.message = "Updated " + std::to_string(plan.estimated_rows) + " rows";
-        return result;
-    }
-};
-
-} // namespace dbx4
-
-// ============================================================================
-// MAIN TEST
-// ============================================================================
-
-int main() {
-    std::cout << "\n=== DBX4 QUERY EXECUTION ENGINE ===" << std::endl;
-    std::cout << "Production SQL query parser and executor" << std::endl;
-    std::cout << std::endl;
-
-    dbx4::QueryExecutor executor;
-
-    // Test queries
-    std::vector<std::string> queries = {
-        "SELECT * FROM users WHERE id = 1;",
-        "SELECT name, email FROM users WHERE age > 25;",
-        "DELETE FROM users WHERE id = 5;",
-        "SELECT * FROM orders ORDER BY created_at;",
-        "SELECT DISTINCT department FROM employees;"
-    };
-
-    int successful = 0;
-    for (const auto& query : queries) {
-        auto result = executor.execute(query);
-        if (result.success) {
-            successful++;
-            std::cout << "✓ Query executed: " << query << std::endl;
-            std::cout << "  Time: " << std::fixed << std::setprecision(3) 
-                     << result.execution_time_ms << "ms" << std::endl;
-        }
-    }
-
-    std::cout << "\n=== STATISTICS ===" << std::endl;
-    std::cout << "Queries Executed: " << executor.get_total_queries() << std::endl;
-    std::cout << "Successful: " << successful << std::endl;
-    std::cout << "Average Execution Time: " << std::fixed << std::setprecision(3)
-              << executor.get_average_execution_time() << "ms" << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
-    std::cout << std::endl;
-
-    return 0;
+bool is_whitespace(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
+std::string trim(const std::string& str) {
+    size_t start = 0;
+    while (start < str.length() && is_whitespace(str[start])) start++;
+    size_t end = str.length();
+    while (end > start && is_whitespace(str[end - 1])) end--;
+    return str.substr(start, end - start);
+}
+
+std::string to_upper(const std::string& str) {
+    std::string result = str;
+    for (char& c : result) { c = std::toupper(c); }
+    return result;
+}
+
+std::vector<std::string> split_quoted(const std::string& str, char delim) {
+    std::vector<std::string> result;
+    std::string current;
+    bool in_quotes = false;
+    for (size_t i = 0; i < str.length(); i++) {
+        char c = str[i];
+        if (c == '\'' && (i == 0 || str[i - 1] != '\\')) {
+            in_quotes = !in_quotes;
+            current += c;
+        } else if (c == delim && !in_quotes) {
+            result.push_back(trim(current));
+            current.clear();
+        } else {
+            current += c;
+        }
+    }
+    result.push_back(trim(current));
+    return result;
+}
+
+std::string extract_table_name(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    size_t from_pos = upper_sql.find("FROM");
+    if (from_pos == std::string::npos) throw std::runtime_error("Invalid SQL: missing FROM clause");
+    std::string after_from = sql.substr(from_pos + 4);
+    std::string table_name = trim(after_from);
+    size_t space_pos = table_name.find(' ');
+    if (space_pos != std::string::npos) table_name = table_name.substr(0, space_pos);
+    return table_name;
+}
+
+struct WhereClause { std::string column; std::string op; std::string value; };
+
+WhereClause parse_where_clause(const std::string& sql) {
+    size_t where_pos = sql.find(" WHERE ");
+    if (where_pos == std::string::npos) return WhereClause{"", "", ""};
+    std::string where_part = sql.substr(where_pos + 7);
+    std::string op;
+    size_t op_pos = std::string::npos;
+    if ((op_pos = where_part.find("!=")) != std::string::npos) op = "!=";
+    else if ((op_pos = where_part.find("<=")) != std::string::npos) op = "<=";
+    else if ((op_pos = where_part.find(">=")) != std::string::npos) op = ">=";
+    else if ((op_pos = where_part.find("<")) != std::string::npos) op = "<";
+    else if ((op_pos = where_part.find(">")) != std::string::npos) op = ">";
+    else if ((op_pos = where_part.find("=")) != std::string::npos) op = "=";
+    else throw std::runtime_error("Invalid WHERE clause");
+    std::string column = trim(where_part.substr(0, op_pos));
+    std::string value_part = trim(where_part.substr(op_pos + op.length()));
+    size_t limit_pos = value_part.find(" LIMIT");
+    if (limit_pos != std::string::npos) value_part = trim(value_part.substr(0, limit_pos));
+    std::string value = value_part;
+    if (!value.empty() && value.front() == '\'' && value.back() == '\'') value = value.substr(1, value.length() - 2);
+    return WhereClause{column, op, value};
+}
+
+bool evaluate_where(const WhereClause& where, const std::map<std::string, std::string>& row) {
+    if (where.column.empty()) return true;
+    auto it = row.find(where.column);
+    if (it == row.end()) throw std::runtime_error("Unknown column");
+    std::string row_value = it->second;
+    std::string where_value = where.value;
+    try {
+        double row_num = std::stod(row_value);
+        double where_num = std::stod(where_value);
+        if (where.op == "=") return row_num == where_num;
+        if (where.op == "!=") return row_num != where_num;
+        if (where.op == "<") return row_num < where_num;
+        if (where.op == ">") return row_num > where_num;
+        if (where.op == "<=") return row_num <= where_num;
+        if (where.op == ">=") return row_num >= where_num;
+    } catch (...) { }
+    if (where.op == "=") return row_value == where_value;
+    if (where.op == "!=") return row_value != where_value;
+    if (where.op == "<") return row_value < where_value;
+    if (where.op == ">") return row_value > where_value;
+    if (where.op == "<=") return row_value <= where_value;
+    if (where.op == ">=") return row_value >= where_value;
+    return false;
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    if (upper_sql.find("CREATE TABLE") == 0) return execute_create_table(sql);
+    else if (upper_sql.find("INSERT INTO") == 0) return execute_insert(sql);
+    else if (upper_sql.find("SELECT") == 0) return execute_select(sql);
+    else if (upper_sql.find("UPDATE") == 0) return execute_update(sql);
+    else if (upper_sql.find("DELETE") == 0) return execute_delete(sql);
+    else throw std::runtime_error("Unknown SQL statement");
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute_create_table(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    size_t paren_start = sql.find('(');
+    size_t paren_end = sql.rfind(')');
+    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Invalid CREATE TABLE");
+    std::string table_def = sql.substr(paren_start + 1, paren_end - paren_start - 1);
+    size_t table_start = upper_sql.find("CREATE TABLE") + 12;
+    std::string table_name_part = sql.substr(table_start, paren_start - table_start);
+    std::string table_name = trim(table_name_part);
+    if (tables.find(table_name) != tables.end()) throw std::runtime_error("Table exists");
+    std::vector<std::string> columns = split_quoted(table_def, ',');
+    std::vector<std::string> col_names;
+    for (const auto& col : columns) {
+        std::string col_name = trim(col);
+        size_t space_pos = col_name.find(' ');
+        if (space_pos != std::string::npos) col_name = col_name.substr(0, space_pos);
+        col_names.push_back(col_name);
+    }
+    tables[table_name] = Table{table_name, col_names, {}};
+    return {};
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute_insert(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    size_t into_pos = upper_sql.find("INTO");
+    size_t values_pos = upper_sql.find("VALUES");
+    if (into_pos == std::string::npos || values_pos == std::string::npos) throw std::runtime_error("Invalid INSERT");
+    std::string table_name_part = sql.substr(into_pos + 4, values_pos - into_pos - 4);
+    std::string table_name = trim(table_name_part);
+    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
+    Table& t = tables[table_name];
+    size_t paren_start = sql.find('(', values_pos);
+    size_t paren_end = sql.rfind(')');
+    if (paren_start == std::string::npos || paren_end == std::string::npos) throw std::runtime_error("Invalid INSERT");
+    std::string values_str = sql.substr(paren_start + 1, paren_end - paren_start - 1);
+    std::vector<std::string> values = split_quoted(values_str, ',');
+    if (values.size() != t.columns.size()) throw std::runtime_error("Column count mismatch");
+    std::map<std::string, std::string> row;
+    for (size_t i = 0; i < t.columns.size(); i++) {
+        std::string val = trim(values[i]);
+        if (!val.empty() && val.front() == '\'' && val.back() == '\'') val = val.substr(1, val.length() - 2);
+        row[t.columns[i]] = val;
+    }
+    t.rows.push_back(row);
+    return {};
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute_select(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    std::string table_name = extract_table_name(sql);
+    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
+    Table& t = tables[table_name];
+    std::vector<std::map<std::string, std::string>> result;
+    WhereClause where = parse_where_clause(sql);
+    for (const auto& row : t.rows) {
+        if (evaluate_where(where, row)) result.push_back(row);
+    }
+    size_t limit_pos = upper_sql.find("LIMIT");
+    if (limit_pos != std::string::npos) {
+        std::string limit_str = sql.substr(limit_pos + 5);
+        int limit = std::stoi(trim(limit_str));
+        if (result.size() > (size_t)limit) result.resize(limit);
+    }
+    return result;
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    size_t set_pos = upper_sql.find("SET");
+    size_t where_pos = upper_sql.find("WHERE");
+    if (set_pos == std::string::npos) throw std::runtime_error("Invalid UPDATE");
+    std::string table_name_part = sql.substr(6, set_pos - 6);
+    std::string table_name = trim(table_name_part);
+    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
+    Table& t = tables[table_name];
+    size_t eq_pos = sql.find('=', set_pos);
+    if (eq_pos == std::string::npos || (where_pos != std::string::npos && eq_pos > where_pos)) throw std::runtime_error("Invalid UPDATE");
+    std::string col_name = trim(sql.substr(set_pos + 3, eq_pos - set_pos - 3));
+    size_t end_pos = (where_pos != std::string::npos) ? where_pos : sql.length();
+    std::string col_value = trim(sql.substr(eq_pos + 1, end_pos - eq_pos - 1));
+    if (!col_value.empty() && col_value.front() == '\'' && col_value.back() == '\'') col_value = col_value.substr(1, col_value.length() - 2);
+    WhereClause where = parse_where_clause(sql);
+    for (auto& row : t.rows) {
+        if (evaluate_where(where, row)) row[col_name] = col_value;
+    }
+    return {};
+}
+
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute_delete(const std::string& sql) {
+    std::string upper_sql = to_upper(sql);
+    std::string table_name = extract_table_name(sql);
+    if (tables.find(table_name) == tables.end()) throw std::runtime_error("Table not found");
+    Table& t = tables[table_name];
+    WhereClause where = parse_where_clause(sql);
+    std::vector<size_t> to_delete;
+    for (size_t i = 0; i < t.rows.size(); i++) {
+        if (evaluate_where(where, t.rows[i])) to_delete.push_back(i);
+    }
+    for (int i = (int)to_delete.size() - 1; i >= 0; i--) {
+        t.rows.erase(t.rows.begin() + to_delete[i]);
+    }
+    return {};
+}
+
+}
