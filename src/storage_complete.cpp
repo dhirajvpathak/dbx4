@@ -1,10 +1,11 @@
-#include <string>
+﻿#include <string>
 #include <vector>
 #include <map>
 #include <set>
 #include <queue>
 #include <deque>
 #include <functional>
+
 // ============================================================================
 // DBX4 STORAGE ENGINE - COMPLETE PRODUCTION IMPLEMENTATION
 // Paged Storage + Buffer Pool + MVCC + Transactions  
@@ -540,6 +541,7 @@ public:
     float get_buffer_hit_ratio() { return buffer_pool_->get_hit_ratio(); }
     size_t get_active_transactions() { return mvcc_->get_active_txn_count(); }
 };
+
 
 } // namespace dbx4
 
