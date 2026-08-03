@@ -10,6 +10,7 @@
 #include <cstring>
 #include <algorithm>
 #include <mutex>
+#include <unistd.h>
 
 namespace dbx4 {
 
@@ -114,8 +115,9 @@ public:
     void clear_wal(const std::string& table_name);
     void mark_committed(int tx_id, const std::string& table_name);
     
+    std::string log_directory;  // P0-3: Make public for recovery manager
+    
 private:
-    std::string log_directory;
     std::map<std::string, std::vector<LogEntry>> pending_writes;
     std::set<int> committed_transactions;
 };

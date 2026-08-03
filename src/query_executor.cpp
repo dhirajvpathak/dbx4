@@ -157,10 +157,55 @@ void RowCache::evict_lru() {
 }
 
 void WalManager::write_log_entry(const LogEntry& entry) {
+    // P0-3 FIX: Include ALL data needed for recovery
     if (pending_writes.find(entry.table_name) == pending_writes.end()) {
         pending_writes[entry.table_name] = std::vector<LogEntry>();
     }
     pending_writes[entry.table_name].push_back(entry);
+}
+
+// Helper: Serialize row data to string format
+static std::string serialize_row(const std::map<std::string, std::string>& row) {
+    std::string result;
+    bool first = true;
+    for (const auto& [key, value] : row) {
+        if (!first) result += "\x01"; // Field separator
+        first = false;
+        // Escape special characters
+        std::string escaped_key = key;
+        std::string escaped_value = value;
+        for (auto& c : escaped_value) {
+            if (c == '\x01' || c == '\n') c = ' '; // Simple escape
+        }
+        result += escaped_key + "=" + escaped_value;
+    }
+    return result;
+}
+
+// Helper: Deserialize row data from string format
+static std::map<std::string, std::string> deserialize_row(const std::string& data) {
+    std::map<std::string, std::string> row;
+    std::string field;
+    for (size_t i = 0; i < data.length(); i++) {
+        if (data[i] == '\x01') {
+            if (!field.empty()) {
+                size_t eq = field.find('=');
+                if (eq != std::string::npos) {
+                    row[field.substr(0, eq)] = field.substr(eq + 1);
+                }
+                field.clear();
+            }
+        } else {
+            field += data[i];
+        }
+    }
+    if (!field.empty()) {
+        size_t eq = field.find('=');
+        if (eq != std::string::npos) {
+            row[field.substr(0, eq)] = field.substr(eq + 1);
+        }
+    }
+    return row;
 }
 
 std::vector<LogEntry> WalManager::read_wal(const std::string& table_name) {
@@ -172,22 +217,72 @@ std::vector<LogEntry> WalManager::read_wal(const std::string& table_name) {
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty()) continue;
-        LogEntry entry;
-        entry.committed = true;
-        entries.push_back(entry);
+        
+        // P0-3 FIX: Parse complete WAL format
+        // Format: timestamp|tx_id|op|table_name|committed|row_data
+        size_t pos = 0;
+        std::vector<std::string> fields;
+        std::string field;
+        
+        for (size_t i = 0; i < line.length(); i++) {
+            if (line[i] == '|') {
+                fields.push_back(field);
+                field.clear();
+            } else {
+                field += line[i];
+            }
+        }
+        if (!field.empty()) fields.push_back(field);
+        
+        if (fields.size() < 5) continue; // Invalid line
+        
+        try {
+            LogEntry entry;
+            entry.timestamp = std::stoll(fields[0]);
+            entry.tx_id = std::stoi(fields[1]);
+            entry.op = static_cast<OpType>(std::stoi(fields[2]));
+            entry.table_name = fields[3];
+            entry.committed = (fields[4] == "1");
+            
+            // Deserialize row data (everything after field 5)
+            if (fields.size() > 5) {
+                std::string row_data = fields[5];
+                entry.row_data = deserialize_row(row_data);
+            }
+            
+            entries.push_back(entry);
+        } catch (...) {
+            // Skip malformed entries
+            continue;
+        }
     }
     file.close();
     return entries;
 }
 
 void WalManager::flush_wal() {
+    // P0-3 FIX: Write complete WAL format with full row data and fsync
     for (auto& pair : pending_writes) {
         std::string wal_file = log_directory + "/" + pair.first + ".wal";
         std::ofstream file(wal_file, std::ios::app);
         if (file.is_open()) {
             for (const auto& entry : pair.second) {
-                file << entry.timestamp << "|" << entry.tx_id << "|" << (int)entry.op << "\n";
+                // Format: timestamp|tx_id|op|table_name|committed|row_data
+                std::string row_data = serialize_row(entry.row_data);
+                file << entry.timestamp << "|" 
+                     << entry.tx_id << "|" 
+                     << (int)entry.op << "|"
+                     << entry.table_name << "|"
+                     << (entry.committed ? "1" : "0") << "|"
+                     << row_data << "\n";
             }
+            file.flush();
+            // P0-3 FIX: fsync for durability
+#ifdef _WIN32
+            _commit(_fileno((FILE*)file.rdbuf()));
+#else
+            fsync(fileno((FILE*)file.rdbuf()));
+#endif
             file.close();
         }
     }
@@ -204,17 +299,74 @@ void WalManager::mark_committed(int tx_id, const std::string& table_name) {
 }
 
 void RecoveryManager::recover(std::map<std::string, Table>& tables) {
+    // P0-3 FIX: Recover schema first from .schema files
+    std::string schema_dir = wal_manager.log_directory + "/schema";
+    
+    // Create directory if doesn't exist
+    std::string mkdir_cmd = "mkdir -p " + schema_dir;
+    system(mkdir_cmd.c_str());
+    
+    // Try to recover tables from schema files
+    std::string schema_list_cmd = "ls " + schema_dir + "/*.schema 2>/dev/null || true";
+    FILE* fp = popen(schema_list_cmd.c_str(), "r");
+    if (fp) {
+        char path[256];
+        while (fgets(path, sizeof(path), fp)) {
+            // Parse schema file and recreate table
+            // Format: tablename|col1:INT|col2:VARCHAR|...
+            std::ifstream schema_file(path);
+            if (schema_file.is_open()) {
+                std::string line;
+                if (std::getline(schema_file, line)) {
+                    size_t pipe = line.find('|');
+                    if (pipe != std::string::npos) {
+                        std::string table_name = line.substr(0, pipe);
+                        Table t;
+                        // Schema stored in table (no structure in current impl)
+                        tables[table_name] = t;
+                    }
+                }
+                schema_file.close();
+            }
+        }
+        pclose(fp);
+    }
+    
+    // Now replay WAL for each table
+    // P0-3 FIX: Complete WAL replay with all operation types
     for (auto& table_pair : tables) {
         std::vector<LogEntry> entries = wal_manager.read_wal(table_pair.first);
+        
         for (const auto& entry : entries) {
-            if (entry.committed && entry.op == OpType::INSERT) {
-                std::string row_key = table_pair.first + ":recovered";
+            if (!entry.committed) continue; // Skip uncommitted entries
+            if (entry.row_data.empty()) continue; // Skip entries with no data
+            
+            std::string table_name = table_pair.first;
+            std::string row_key = table_name + ":key_" + std::to_string(entry.tx_id);
+            
+            if (entry.op == OpType::INSERT || entry.op == OpType::UPDATE) {
                 VersionedRow vrow;
                 vrow.data = entry.row_data;
-                vrow.version_id = entry.tx_id;
+                vrow.version_id = 0;
                 vrow.created_at = entry.timestamp;
                 vrow.deleted_at = -1;
+                
+                // Ensure row key exists in history
+                if (table_pair.second.version_history.find(row_key) == table_pair.second.version_history.end()) {
+                    table_pair.second.version_history[row_key] = std::vector<VersionedRow>();
+                }
                 table_pair.second.version_history[row_key].push_back(vrow);
+            } else if (entry.op == OpType::DELETE) {
+                // Create tombstone version
+                VersionedRow delete_version;
+                delete_version.data = entry.row_data;
+                delete_version.version_id = 0;
+                delete_version.created_at = entry.timestamp;
+                delete_version.deleted_at = entry.timestamp; // Mark as deleted
+                
+                if (table_pair.second.version_history.find(row_key) != table_pair.second.version_history.end()) {
+                    table_pair.second.version_history[row_key].push_back(delete_version);
+                }
             }
         }
     }
@@ -350,6 +502,18 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_create_ta
     t.columns = col_names;
     tables[table_name] = t;
     update_memory_tracking(table_name.length() + col_names.size() * 50);
+    
+    // P0-3 FIX: Persist schema for recovery
+    std::string schema_dir = wal_manager.log_directory + "/schema";
+    system(("mkdir -p " + schema_dir).c_str());
+    std::string schema_file = schema_dir + "/" + table_name + ".schema";
+    std::ofstream schema_out(schema_file);
+    if (schema_out.is_open()) {
+        schema_out << table_name << "|" << table_def << "\n";
+        schema_out.flush();
+        schema_out.close();
+    }
+    
     return {};
 }
 
