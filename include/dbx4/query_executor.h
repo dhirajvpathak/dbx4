@@ -156,6 +156,12 @@ private:
     void recover_from_wal();
     void update_memory_tracking(long long delta);
     
+    // Helper functions for UPDATE/DELETE (with proper transaction/MVCC/WAL support)
+    bool evaluate_where_predicate(const std::string& where_clause, const std::map<std::string, std::string>& row);
+    void apply_set_assignments(const std::string& set_clause, std::map<std::string, std::string>& row, const std::map<std::string, std::string>& schema);
+    void update_indexes(const std::string& table_name, const std::string& row_key, const std::map<std::string, std::string>& new_data);
+    void remove_from_indexes(const std::string& table_name, const std::string& row_key);
+    
     std::vector<std::map<std::string, std::string>> execute_create_table(const std::string& sql);
     std::vector<std::map<std::string, std::string>> execute_insert(const std::string& sql);
     std::vector<std::map<std::string, std::string>> execute_select(const std::string& sql);
