@@ -523,13 +523,20 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(co
     
     int affected_rows = 0;
     
+    // CRITICAL FIX P0-1: Collect rows to update FIRST
+    // Prevents use-after-free when versions vector reallocates
+    std::vector<std::pair<std::string, std::pair<int, std::map<std::string, std::string>>>> rows_to_update;
+    
     for (auto& [row_key, versions] : t.version_history) {
         if (versions.empty()) continue;
         
         auto& current_version = versions.back();
-        const auto& current_row = current_version.data;
         
-        // UD-08: Evaluate WHERE clause properly
+        // CRITICAL: Copy row_data BEFORE any mutations
+        std::map<std::string, std::string> current_row = current_version.data;
+        int version_id = current_version.version_id;
+        
+        // Evaluate WHERE clause
         bool matches = true;
         if (!where_clause.empty()) {
             try {
@@ -540,32 +547,43 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(co
         }
         
         if (matches) {
-            // UD-03: Create new MVCC version (don't mutate)
-            VersionedRow new_version = current_version;
-            new_version.version_id = current_version.version_id + 1;
-            new_version.created_at = get_timestamp();
-            
-            // UD-10/UD-11: Apply SET assignments properly
+            // Apply SET assignments
+            std::map<std::string, std::string> updated_row = current_row;
             try {
-                std::map<std::string, std::string> schema_dummy;  // Simplified - skip schema check for now
-                apply_set_assignments(set_clause, new_version.data, schema_dummy);
+                std::map<std::string, std::string> schema_dummy;
+                apply_set_assignments(set_clause, updated_row, schema_dummy);
+                rows_to_update.push_back({row_key, {version_id, updated_row}});
             } catch (...) {
-                continue;  // Skip row on parse error
+                // Skip row on parse error
             }
-            
-            // UD-01: Add to transaction write set
-            if (!active_transactions.empty() && active_transactions.find(tx_id) != active_transactions.end()) {
-                active_transactions[tx_id].write_set[row_key] = new_version.data;
-            }
-            
-            versions.push_back(new_version);
-            
-            // UD-05/UD-06: Log to WAL with full row data
-            LogEntry entry(get_timestamp(), tx_id, OpType::UPDATE, table_name, new_version.data);
-            wal_manager.write_log_entry(entry);
-            
-            affected_rows++;
         }
+    }
+    
+    // Now safe to mutate version_history - no references held
+    for (const auto& [row_key, update_data] : rows_to_update) {
+        auto& versions = t.version_history[row_key];
+        auto& current_version = versions.back();
+        const auto& [version_id, updated_row] = update_data;
+        
+        // Create new MVCC version
+        VersionedRow new_version;
+        new_version.data = updated_row;
+        new_version.version_id = version_id + 1;
+        new_version.created_at = get_timestamp();
+        new_version.deleted_at = -1;
+        
+        // Add to transaction write set
+        if (!active_transactions.empty() && active_transactions.find(tx_id) != active_transactions.end()) {
+            active_transactions[tx_id].write_set[row_key] = updated_row;
+        }
+        
+        versions.push_back(new_version);
+        
+        // Log to WAL with full row data
+        LogEntry entry(get_timestamp(), tx_id, OpType::UPDATE, table_name, updated_row);
+        wal_manager.write_log_entry(entry);
+        
+        affected_rows++;
     }
     
     // UD-05: Flush WAL
@@ -606,16 +624,22 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_delete(co
     
     int affected_rows = 0;
     
+    // CRITICAL FIX P0-1: Collect rows to delete FIRST
+    // This prevents use-after-free when versions vector reallocates
+    std::vector<std::pair<std::string, std::map<std::string, std::string>>> rows_to_delete;
+    
     for (auto& [row_key, versions] : t.version_history) {
         if (versions.empty()) continue;
         
         auto& current_version = versions.back();
-        const auto& current_row = current_version.data;
         
         // Skip already-deleted rows
         if (current_version.is_deleted()) continue;
         
-        // UD-08: Evaluate WHERE clause properly
+        // CRITICAL: Copy row_data BEFORE any mutations
+        std::map<std::string, std::string> current_row = current_version.data;
+        
+        // Evaluate WHERE clause
         bool matches = true;
         if (!where_clause.empty()) {
             try {
@@ -626,25 +650,34 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_delete(co
         }
         
         if (matches) {
-            // UD-04: Create delete version (tombstone), don't erase
-            VersionedRow delete_version = current_version;
-            delete_version.version_id = current_version.version_id + 1;
-            delete_version.created_at = get_timestamp();
-            delete_version.deleted_at = get_timestamp();
-            
-            // UD-02: Add to transaction write set
-            if (!active_transactions.empty() && active_transactions.find(tx_id) != active_transactions.end()) {
-                active_transactions[tx_id].write_set[row_key] = current_row;
-            }
-            
-            versions.push_back(delete_version);
-            
-            // UD-05/UD-06: Log to WAL with full row data
-            LogEntry entry(get_timestamp(), tx_id, OpType::DELETE, table_name, current_row);
-            wal_manager.write_log_entry(entry);
-            
-            affected_rows++;
+            rows_to_delete.push_back({row_key, current_row});
         }
+    }
+    
+    // Now safe to mutate version_history - no references held
+    for (const auto& [row_key, current_row] : rows_to_delete) {
+        auto& versions = t.version_history[row_key];
+        auto& current_version = versions.back();
+        
+        // Create delete version (tombstone)
+        VersionedRow delete_version;
+        delete_version.data = current_row;
+        delete_version.version_id = current_version.version_id + 1;
+        delete_version.created_at = get_timestamp();
+        delete_version.deleted_at = get_timestamp();
+        
+        // Add to transaction write set
+        if (!active_transactions.empty() && active_transactions.find(tx_id) != active_transactions.end()) {
+            active_transactions[tx_id].write_set[row_key] = current_row;
+        }
+        
+        versions.push_back(delete_version);
+        
+        // Log to WAL with full row data
+        LogEntry entry(get_timestamp(), tx_id, OpType::DELETE, table_name, current_row);
+        wal_manager.write_log_entry(entry);
+        
+        affected_rows++;
     }
     
     // UD-05: Flush WAL
