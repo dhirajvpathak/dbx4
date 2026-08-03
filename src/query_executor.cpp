@@ -492,6 +492,9 @@ void QueryExecutor::remove_from_indexes(const std::string& table_name, const std
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(const std::string& sql) {
+    // P0-2 FIX: Thread safety - lock all shared state
+    std::lock_guard<std::mutex> lock(executor_lock);
+    
     // Parse UPDATE table SET col=val WHERE condition  
     // Proper implementation with transaction/MVCC/WAL support
     
@@ -595,6 +598,9 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute_update(co
 }
 
 std::vector<std::map<std::string, std::string>> QueryExecutor::execute_delete(const std::string& sql) {
+    // P0-2 FIX: Thread safety - lock all shared state
+    std::lock_guard<std::mutex> lock(executor_lock);
+    
     // Parse DELETE FROM table WHERE condition
     // Proper implementation with transaction/MVCC/WAL support
     

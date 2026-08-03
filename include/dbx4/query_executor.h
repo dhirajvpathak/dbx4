@@ -9,6 +9,7 @@
 #include <fstream>
 #include <cstring>
 #include <algorithm>
+#include <mutex>
 
 namespace dbx4 {
 
@@ -148,6 +149,9 @@ private:
     WalManager wal_manager;
     RecoveryManager recovery_manager;
     long long total_memory_bytes;
+    
+    // P0-2 FIX: Thread safety - mutex for all shared state
+    mutable std::mutex executor_lock;
     
     long long get_timestamp() { return ++clock; }
     int begin_transaction();
