@@ -1,4 +1,3 @@
-#include "../include/dbx4_logger.h"
 #include <string>
 // ============================================================================
 // DBX4 PHASE 4: INDEXING + QUERY OPTIMIZATION - COMPLETE
@@ -78,13 +77,13 @@ private:
         if (node->is_leaf) {
             auto it = std::lower_bound(node->keys.begin(), node->keys.end(), key);
             node->keys.insert(it, key);
+            if (std::distance(node->keys.begin(), it) > node->row_ids.size()) { return false; }
             size_t insert_pos = std::distance(node->keys.begin(), it);
             if (insert_pos > node->row_ids.size()) {
                 // Bounds check failed - safely return false
                 return false;
             }
             if (it - node->keys.begin() < 0 || it - node->keys.begin() > node->row_ids.size()) {
-                LOGR(LogLevel::ERROR, "Invalid insert position in B-tree leaf");
                 return false;
             }
     if (pos > tree->children.size()) pos = tree->children.size();  // Add bounds check

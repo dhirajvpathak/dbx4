@@ -1,3 +1,4 @@
+#include <shared_mutex>
 #include "dbx4/query_executor.h"
 #include <iostream>
 #include <cctype>
