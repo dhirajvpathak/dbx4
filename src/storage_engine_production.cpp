@@ -700,7 +700,8 @@ int main() {
     std::cout << "Rows Inserted: " << db.get_stats_inserted() << std::endl;
     std::cout << "Buffer Hit Ratio: " << std::fixed << std::setprecision(2) 
               << db.get_buffer_hit_ratio() * 100 << "%" << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
+    if (insertion_passes < 100 || serialization_passes < 150) { std::cerr << "FAILED"; return 1; }
+    std::cout << "Status: WORKING" << std::endl;
     std::cout << std::endl;
 
     return 0;

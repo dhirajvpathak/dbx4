@@ -70,7 +70,7 @@ QueryResult QueryExecutor::execute(const std::shared_ptr<ASTNode>& ast) {
             result = execute_create_table(create_stmt);
         } else if (auto insert_stmt = std::dynamic_pointer_cast<InsertStmt>(ast)) {
             result = execute_insert(insert_stmt);
-        } else if (auto select_stmt = std::dynamic_pointer_cast<SelectStmt>(ast)) {
+        } else if (auto select_stmt = std::dynamic_pointer_cast<SelectStatement>(ast)) {
             result = execute_select(select_stmt);
         } else if (auto update_stmt = std::dynamic_pointer_cast<UpdateStmt>(ast)) {
             result = execute_update(update_stmt);
@@ -204,7 +204,7 @@ QueryResult QueryExecutor::execute_insert(const std::shared_ptr<InsertStmt>& stm
     return result;
 }
 
-QueryResult QueryExecutor::execute_select(const std::shared_ptr<SelectStmt>& stmt) {
+QueryResult QueryExecutor::execute_select(const std::shared_ptr<SelectStatement>& stmt) {
     QueryResult result;
     
     if (stmt->table_name.empty()) {
