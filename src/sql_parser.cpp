@@ -168,8 +168,8 @@ std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
     return stmt;
 }
 
-std::shared_ptr<SelectStmt> SQLParser::parse_select() {
-    auto stmt = std::make_shared<SelectStmt>();
+std::shared_ptr<SelectStatement> SQLParser::parse_select() {
+    auto stmt = std::make_shared<SelectStatement>();
     
     consume(TokenType::SELECT, "Expected SELECT");
     

@@ -101,7 +101,7 @@ private:
     
     QueryResult execute_create_table(const std::shared_ptr<CreateTableStmt>& stmt);
     QueryResult execute_insert(const std::shared_ptr<InsertStmt>& stmt);
-    QueryResult execute_select(const std::shared_ptr<SelectStmt>& stmt);
+    QueryResult execute_select(const std::shared_ptr<SelectStatement>& stmt);
     QueryResult execute_update(const std::shared_ptr<UpdateStmt>& stmt);
     QueryResult execute_delete(const std::shared_ptr<DeleteStmt>& stmt);
     

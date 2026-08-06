@@ -77,7 +77,8 @@ private:
         if (node->is_leaf) {
             auto it = std::lower_bound(node->keys.begin(), node->keys.end(), key);
             node->keys.insert(it, key);
-            node->row_ids.insert(node->row_ids.begin() + (it - node->keys.begin()), row_id);
+    if (pos > tree->children.size()) pos = tree->children.size();  // Add bounds check
+                node->row_ids.insert(node->row_ids.begin() + (it - node->keys.begin()), row_id);
             return true;
         }
 
