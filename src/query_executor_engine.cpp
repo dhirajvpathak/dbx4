@@ -571,7 +571,7 @@ Value QueryExecutor::convert_to_type(const Value& value, TokenType target_type) 
             }
             if (value.type == Value::STRING_VAL) {
                 try {
-                    return Value(std::stod(std::any_cast<std::string>(value.data))));
+                    return Value(std::stod(std::any_cast<std::string>(value.data));
                 } catch (...) {
                     throw TypeCastException(value.to_string(), token_type_to_string(target_type));
                 }

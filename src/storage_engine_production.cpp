@@ -684,13 +684,14 @@ int main() {
     }
 
     // Test insertions
+    int insertion_passes = 0, serialization_passes = 0, storage_ops_passes = 0;
     int inserted = 0;
     for (int i = 0; i < 1000; i++) {
         dbx4::Row row;
         row.data.resize(256);
         row.row_id = i;
         
-        if (db.insert_row("users", row)) {
+        if (db.insert_row("users", row)) { insertion_passes++;
             inserted++;
         }
     }

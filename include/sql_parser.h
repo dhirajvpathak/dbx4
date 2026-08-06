@@ -18,6 +18,7 @@ struct InsertStmt : public ASTNode { std::string table_name; std::vector<std::st
 struct UpdateStmt : public ASTNode { std::string table_name; std::vector<std::pair<std::string, std::shared_ptr<Expression>>> assignments; std::shared_ptr<Expression> where_clause; };
 struct DeleteStmt : public ASTNode { std::string table_name; std::shared_ptr<Expression> where_clause; };
 class SQLParser {
+    std::shared_ptr<Expression> parse_unary();
 private:
     std::vector<Token> tokens_;
     size_t pos_;
