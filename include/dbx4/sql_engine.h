@@ -89,6 +89,7 @@ struct AggregationFunc {
 // SELECT statement structure
 struct SelectStatement {
     std::vector<std::string> select_columns;  // Empty = SELECT *
+    std::vector<std::string> column_aliases;  // Column aliases (AS keyword)
     std::string from_table;
     std::shared_ptr<Condition> where_clause;
     std::vector<std::string> group_by_columns;

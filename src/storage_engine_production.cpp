@@ -212,7 +212,7 @@ private:
     std::vector<SlotHeader> slot_directory_;
     std::vector<uint8_t> data_;
     bool is_dirty_;
-    std::shared_mutex page_mutex_;
+    mutable std::shared_mutex page_mutex_;
     uint64_t access_count_;
     std::chrono::system_clock::time_point last_access_;
 
@@ -375,7 +375,7 @@ private:
     std::map<std::string, TableSchema> schemas_;
     std::map<std::string, std::vector<Index>> indexes_;
     std::map<std::string, std::vector<Constraint>> constraints_;
-    std::shared_mutex schema_mutex_;
+    mutable std::shared_mutex schema_mutex_;
     uint32_t next_table_id_;
 
 public:
@@ -479,7 +479,7 @@ private:
     std::string data_dir_;
     size_t max_size_;
     size_t current_size_;
-    std::shared_mutex pool_mutex_;
+    mutable std::shared_mutex pool_mutex_;
     
     uint64_t total_hits_;
     uint64_t total_misses_;
@@ -601,7 +601,7 @@ private:
     SchemaManager schema_manager_;
     std::unique_ptr<BufferPool> buffer_pool_;
     std::string data_dir_;
-    std::shared_mutex db_mutex_;
+    mutable std::shared_mutex db_mutex_;
     
     uint64_t total_rows_inserted_;
     uint64_t total_rows_updated_;

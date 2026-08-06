@@ -68,7 +68,7 @@ private:
     };
 
     std::map<std::string, std::vector<LockEntry>> locks_;
-    std::shared_mutex lock_mutex_;
+    mutable std::shared_mutex lock_mutex_;
     std::map<uint64_t, std::set<std::string>> txn_locks_;
     
     uint64_t total_locks_granted_;
@@ -190,7 +190,7 @@ private:
     };
 
     std::map<std::string, std::vector<VersionEntry>> versions_;
-    std::shared_mutex version_mutex_;
+    mutable std::shared_mutex version_mutex_;
     
     uint64_t total_versions_created_;
     uint64_t total_versions_gc_;
@@ -254,7 +254,7 @@ private:
     std::map<uint64_t, Transaction> transactions_;
     LockManager lock_manager_;
     VersionStorage version_storage_;
-    std::shared_mutex txn_mutex_;
+    mutable std::shared_mutex txn_mutex_;
     
     std::atomic<uint64_t> txn_id_counter_{1};
     std::atomic<uint64_t> snapshot_id_counter_{1};

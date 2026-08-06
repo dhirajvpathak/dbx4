@@ -1,5 +1,5 @@
 #pragma once
-#include "sql_parser_FIXED.h"
+#include "sql_parser.h"
 #include "../include/dbx4_exceptions.h"
 #include "../include/dbx4_logger.h"
 #include <vector>
