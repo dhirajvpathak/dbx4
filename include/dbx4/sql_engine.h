@@ -13,6 +13,14 @@
 
 namespace dbx4 {
 
+// Row data structure
+struct Row {
+    std::map<std::string, std::string> fields;  // Column name -> value
+    uint64_t row_id = 0;
+    std::vector<uint8_t> data;  // Serialized form
+};
+
+
 // Column definition
 struct Column {
     std::string name;
@@ -22,7 +30,6 @@ struct Column {
 };
 
 // Row data
-using Row = std::map<std::string, std::string>;
 
 // SQL comparison operators
 enum class ComparisonOp {
