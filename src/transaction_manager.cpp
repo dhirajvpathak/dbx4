@@ -409,7 +409,6 @@ int main() {
     std::cout << "Total Committed: " << txn_mgr.get_committed_count() << std::endl;
     std::cout << "Total Aborted: " << txn_mgr.get_aborted_count() << std::endl;
     std::cout << "Active Transactions: " << txn_mgr.get_active_transactions() << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
     std::cout << std::endl;
 
     return 0;

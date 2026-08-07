@@ -278,7 +278,6 @@ int main() {
     std::cout << "Proposals Generated: " << agent.get_proposals_generated() << std::endl;
     std::cout << "Gate Accepted: " << gate.get_accepted() << std::endl;
     std::cout << "Gate Rejected: " << gate.get_rejected() << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
     std::cout << std::endl;
 
     return 0;

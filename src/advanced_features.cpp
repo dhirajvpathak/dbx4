@@ -585,7 +585,6 @@ int main() {
 
     std::cout << "\n=== TEST RESULTS ===" << std::endl;
     std::cout << "Total Passed: " << passed << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
     std::cout << std::endl;
 
     return 0;

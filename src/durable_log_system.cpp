@@ -350,7 +350,6 @@ int main() {
     std::cout << "Total Entries: " << log.get_entry_count() << std::endl;
     std::cout << "Sequence Number: " << log.get_sequence_number() << std::endl;
     std::cout << "Is Sealed: " << (log.is_sealed() ? "Yes" : "No") << std::endl;
-    std::cout << "Status: PRODUCTION READY" << std::endl;
     std::cout << std::endl;
 
     return 0;

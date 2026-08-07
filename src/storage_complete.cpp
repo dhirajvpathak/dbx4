@@ -695,7 +695,6 @@ int main() {
 
     std::cout << "\n=== ALL TESTS COMPLETED ===" << std::endl;
     std::cout << "Total Tests: 800+" << std::endl;
-    std::cout << "Status: PRODUCTION READY\n" << std::endl;
 
     return 0;
 }
