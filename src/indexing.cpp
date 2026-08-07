@@ -77,6 +77,7 @@ private:
         if (node->is_leaf) {
             auto it = std::lower_bound(node->keys.begin(), node->keys.end(), key);
             node->keys.insert(it, key);
+            if (std::distance(node->keys.begin(), it) > (long)node->row_ids.size()) { return false; }
             if (std::distance(node->keys.begin(), it) > node->row_ids.size()) { return false; }
             size_t insert_pos = std::distance(node->keys.begin(), it);
             if (insert_pos > node->row_ids.size()) {
