@@ -162,3 +162,46 @@ std::vector<std::map<std::string, std::string>> QueryExecutor::execute(
     results.push_back({{"status", "ok"}, {"rows_affected", "0"}});
     return results;
 }
+
+
+// Implement public recover_from_wal() method
+void QueryExecutor::recover_from_wal() {
+    std::lock_guard<std::mutex> lock(executor_lock);
+    
+    // This method is called on initialization
+    // It reads the WAL file and recovers committed transactions
+    std::ifstream wal(wal_manager.get_wal_path(), std::ios::binary);
+    
+    if (!wal.is_open()) {
+        // No WAL file = clean start
+        return;
+    }
+    
+    // Read WAL entries and recover committed transactions
+    uint32_t txn_id, is_committed, data_len;
+    
+    while (wal.read((char*)&txn_id, 4)) {
+        if (!wal.read((char*)&is_committed, 4)) break;
+        if (!wal.read((char*)&data_len, 4)) break;
+        
+        // Validate entry
+        if (data_len > 65536) {
+            // Corrupted entry, skip it
+            continue;
+        }
+        
+        std::vector<char> data(data_len);
+        if (data_len > 0) {
+            if (!wal.read(data.data(), data_len)) {
+                break;  // Incomplete entry
+            }
+        }
+        
+        // If transaction was committed, mark it as recovered
+        if (is_committed) {
+            committed_tx_ids.insert(txn_id);
+        }
+    }
+    
+    wal.close();
+}
