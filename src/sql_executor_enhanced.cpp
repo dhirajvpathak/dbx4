@@ -2,7 +2,8 @@
 #include <vector>
 #include <map>
 #include <algorithm>
-#include <sstream>
+#include <cctype>
+#include <set>
 
 namespace dbx4 {
 
@@ -11,110 +12,102 @@ struct Row {
 };
 
 class SQLExecutor {
-public:
-    // Parse AND clause - not partial interpretation
-    static bool evaluate_and_condition(
-        const std::string& condition,
-        const Row& row
-    ) {
-        // Split by AND
-        std::vector<std::string> parts;
-        std::stringstream ss(condition);
-        std::string part;
-        while (std::getline(ss, part, ' ')) {
-            if (!part.empty()) parts.push_back(part);
-        }
+private:
+    // Parse column list from projection
+    static std::vector<std::string> parse_columns(const std::string& proj) {
+        std::vector<std::string> cols;
+        if (proj == "*") return cols;  // Empty means all columns
         
-        // Check if AND exists - if so, it's multi-part
-        bool has_and = false;
-        for (const auto& p : parts) {
-            if (p == "AND") {
-                has_and = true;
-                break;
-            }
-        }
-        
-        if (!has_and) {
-            // Single condition
-            return evaluate_single_condition(condition, row);
-        }
-        
-        // Multiple conditions with AND
-        std::string current = "";
-        bool all_true = true;
-        
-        for (size_t i = 0; i < parts.size(); i++) {
-            if (parts[i] == "AND") {
+        std::string current;
+        for (char c : proj) {
+            if (c == ',') {
                 if (!current.empty()) {
-                    if (!evaluate_single_condition(current, row)) {
-                        all_true = false;
-                        break;
-                    }
-                    current = "";
+                    // Trim
+                    while (!current.empty() && std::isspace(current.front())) current.erase(0, 1);
+                    while (!current.empty() && std::isspace(current.back())) current.pop_back();
+                    cols.push_back(current);
+                    current.clear();
                 }
             } else {
-                if (!current.empty()) current += " ";
-                current += parts[i];
+                current += c;
             }
         }
+        if (!current.empty()) {
+            while (!current.empty() && std::isspace(current.front())) current.erase(0, 1);
+            while (!current.empty() && std::isspace(current.back())) current.pop_back();
+            cols.push_back(current);
+        }
+        return cols;
+    }
+    
+    // Evaluate WHERE clause with proper AND/OR support
+    static bool evaluate_where(const std::string& where_clause, const Row& row) {
+        if (where_clause.empty()) return true;
         
-        if (!current.empty() && all_true) {
-            all_true = evaluate_single_condition(current, row);
+        // Check for AND
+        size_t and_pos = where_clause.find(" AND ");
+        if (and_pos != std::string::npos) {
+            std::string left = where_clause.substr(0, and_pos);
+            std::string right = where_clause.substr(and_pos + 5);
+            return evaluate_where(left, row) && evaluate_where(right, row);
         }
         
-        return all_true;
-    }
-    
-    static bool evaluate_single_condition(
-        const std::string& condition,
-        const Row& row
-    ) {
-        // Parse: column=value or column>value, etc.
-        size_t eq_pos = condition.find('=');
-        if (eq_pos == std::string::npos) return false;
+        // Check for OR
+        size_t or_pos = where_clause.find(" OR ");
+        if (or_pos != std::string::npos) {
+            std::string left = where_clause.substr(0, or_pos);
+            std::string right = where_clause.substr(or_pos + 4);
+            return evaluate_where(left, row) || evaluate_where(right, row);
+        }
         
-        std::string col = condition.substr(0, eq_pos);
-        std::string val = condition.substr(eq_pos + 1);
+        // Check for NOT
+        if (where_clause.find("NOT ") == 0) {
+            return !evaluate_where(where_clause.substr(4), row);
+        }
         
-        // Trim spaces
-        while (!col.empty() && col.back() == ' ') col.pop_back();
-        while (!val.empty() && val.front() == ' ') val.erase(0, 1);
+        // Single condition: column=value
+        size_t eq_pos = where_clause.find('=');
+        if (eq_pos == std::string::npos) {
+            throw std::runtime_error("Unsupported WHERE syntax: " + where_clause);
+        }
+        
+        std::string col = where_clause.substr(0, eq_pos);
+        std::string val = where_clause.substr(eq_pos + 1);
+        
+        // Trim
+        while (!col.empty() && std::isspace(col.front())) col.erase(0, 1);
+        while (!col.empty() && std::isspace(col.back())) col.pop_back();
+        while (!val.empty() && std::isspace(val.front())) val.erase(0, 1);
+        while (!val.empty() && std::isspace(val.back())) val.pop_back();
         
         auto it = row.columns.find(col);
-        return it != row.columns.end() && it->second == val;
+        if (it == row.columns.end()) return false;
+        return it->second == val;
     }
     
+public:
     static std::vector<Row> execute_select(
         const std::vector<Row>& rows,
-        const std::vector<std::string>& projection,
+        const std::string& projection,
         const std::string& order_by,
         int limit,
         const std::string& where_clause
     ) {
         std::vector<Row> result;
         
-        // Apply WHERE clause
+        // Step 1: Apply WHERE
         for (const auto& row : rows) {
-            if (where_clause.empty() || evaluate_and_condition(where_clause, row)) {
-                result.push_back(row);
-            }
-        }
-        
-        // Apply projection (SELECT specific columns)
-        if (!projection.empty() && projection[0] != "*") {
-            for (auto& row : result) {
-                std::map<std::string, std::string> projected;
-                for (const auto& col : projection) {
-                    auto it = row.columns.find(col);
-                    if (it != row.columns.end()) {
-                        projected[col] = it->second;
-                    }
+            try {
+                if (evaluate_where(where_clause, row)) {
+                    result.push_back(row);
                 }
-                row.columns = projected;
+            } catch (const std::exception& e) {
+                // Unsupported syntax throws
+                throw;
             }
         }
         
-        // Apply ORDER BY
+        // Step 2: Apply ORDER BY
         if (!order_by.empty() && order_by != "*") {
             std::sort(result.begin(), result.end(),
                 [&order_by](const Row& a, const Row& b) {
@@ -127,9 +120,24 @@ public:
             );
         }
         
-        // Apply LIMIT
+        // Step 3: Apply LIMIT
         if (limit > 0 && (int)result.size() > limit) {
             result.resize(limit);
+        }
+        
+        // Step 4: Apply projection
+        auto cols = parse_columns(projection);
+        if (!cols.empty()) {
+            for (auto& row : result) {
+                std::map<std::string, std::string> projected;
+                for (const auto& col : cols) {
+                    auto it = row.columns.find(col);
+                    if (it != row.columns.end()) {
+                        projected[col] = it->second;
+                    }
+                }
+                row.columns = projected;
+            }
         }
         
         return result;

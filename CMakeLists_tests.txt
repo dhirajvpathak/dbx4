@@ -1,0 +1,27 @@
+# Enable CTest
+enable_testing()
+
+# Register actual executable tests
+add_executable(test_concurrency tests/test_concurrency.cpp)
+target_link_libraries(test_concurrency dbx4_core)
+add_test(NAME Concurrency COMMAND test_concurrency)
+
+add_executable(test_storage tests/test_storage.cpp)
+target_link_libraries(test_storage dbx4_core)
+add_test(NAME Storage COMMAND test_storage)
+
+add_executable(test_transaction tests/test_transaction.cpp)
+target_link_libraries(test_transaction dbx4_core)
+add_test(NAME Transaction COMMAND test_transaction)
+
+add_executable(test_recovery tests/test_recovery.cpp)
+target_link_libraries(test_recovery dbx4_core)
+add_test(NAME Recovery COMMAND test_recovery)
+
+add_executable(test_sql tests/test_sql.cpp)
+target_link_libraries(test_sql dbx4_core)
+add_test(NAME SQL COMMAND test_sql)
+
+# Tests that must pass
+set_tests_properties(Concurrency Storage Transaction Recovery SQL
+    PROPERTIES TIMEOUT 30 WILL_FAIL FALSE)
