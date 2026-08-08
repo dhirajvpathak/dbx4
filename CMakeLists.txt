@@ -18,6 +18,7 @@ set(DBX4_CORE_SOURCES
     src/transaction_manager.cpp
     src/query_executor_engine.cpp
     src/query_executor.cpp
+    src/query_executor_public_api.cpp
     src/mvcc_locks.cpp
     src/sql_parser.cpp
     src/sql_executor_enhanced.cpp
