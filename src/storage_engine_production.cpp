@@ -663,49 +663,5 @@ public:
 // MAIN TEST
 // ============================================================================
 
-int main() {
-    std::cout << "\n=== DBX4 PRODUCTION STORAGE ENGINE ===" << std::endl;
-    std::cout << "Enterprise-grade database with full features" << std::endl;
-    std::cout << std::endl;
-
-    dbx4::DatabaseEngine db(256, "./dbx4_prod_data");
-
-    // Create table with schema
-    std::vector<dbx4::ColumnDef> columns = {
-        {"id", dbx4::DataType::INT64, 8, false, ""},
-        {"name", dbx4::DataType::VARCHAR, 255, false, ""},
-        {"email", dbx4::DataType::VARCHAR, 255, true, ""},
-        {"age", dbx4::DataType::INT32, 4, true, ""},
-        {"created_at", dbx4::DataType::TIMESTAMP, 8, false, ""}
-    };
-
-    if (db.create_table("users", columns)) {
-        std::cout << "✓ Table 'users' created" << std::endl;
-    }
-
-    // Test insertions
-    int insertion_passes = 0, serialization_passes = 0, storage_ops_passes = 0;
-    int inserted = 0;
-    for (int i = 0; i < 1000; i++) {
-        dbx4::Row row;
-        row.data.resize(256);
-        row.row_id = i;
-        
-        if (db.insert_row("users", row)) { insertion_passes++;
-            inserted++;
-        }
-    }
-    std::cout << "✓ Inserted " << inserted << " rows" << std::endl;
-
-    std::cout << "\n=== STATISTICS ===" << std::endl;
-    std::cout << "Rows Inserted: " << db.get_stats_inserted() << std::endl;
-    std::cout << "Buffer Hit Ratio: " << std::fixed << std::setprecision(2) 
-              << db.get_buffer_hit_ratio() * 100 << "%" << std::endl;
-    if (insertion_passes < 100 || serialization_passes < 150) { std::cerr << "FAILED"; return 1; }
-    std::cout << "Status: WORKING" << std::endl;
-    std::cout << std::endl;
-
-    return 0;
-}
 
 

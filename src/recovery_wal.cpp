@@ -169,8 +169,3 @@ int test_recovery_wal() {
     return rm.get_wal_size() >= 0 ? 1 : 0;
 }
 
-int main() {
-    dbx4::RecoveryManager rm;
-    rm.perform_recovery();
-    return 0;
-}

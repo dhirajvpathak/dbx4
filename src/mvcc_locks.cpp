@@ -190,8 +190,3 @@ int test_mvcc_locks() {
     return mvcc.get_snapshot_count() >= 0 ? 1 : 0;
 }
 
-int main() {
-    dbx4::MVCCCoordinator mvcc;
-    mvcc.increment_version();
-    return 0;
-}

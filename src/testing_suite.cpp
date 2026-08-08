@@ -480,35 +480,6 @@ void run_performance_benchmarks() {
 // MAIN - RUN ALL TESTS
 // ============================================================================
 
-int main() {
-    std::cout << "\n";
-    std::cout << "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" << std::endl;
-    std::cout << "â•‘        DBX4 PHASE 6: COMPREHENSIVE TEST SUITE          â•‘" << std::endl;
-    std::cout << "â•‘   Unit Tests + Integration Tests + Stress Tests        â•‘" << std::endl;
-    std::cout << "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" << std::endl;
-
-    dbx4::TestFramework tf;
-
-    // Run all test suites
-    dbx4::run_unit_tests(tf);
-    dbx4::run_integration_tests(tf);
-    dbx4::run_stress_tests(tf);
-
-    // Print test results
-    tf.print_results();
-
-    // Run performance benchmarks
-    dbx4::run_performance_benchmarks();
-
-    // Final Summary
-    std::cout << "\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" << std::endl;
-    std::cout << "â•‘                    FINAL SUMMARY                       â•‘" << std::endl;
-    std::cout << "â•‘  Success Rate: " << std::setw(40) << std::left << (tf.get_success_rate()) << "â•‘" << std::endl;
-    std::cout << "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" << std::endl;
-    std::cout << std::endl;
-
-    return 0;
-}
 
 
 

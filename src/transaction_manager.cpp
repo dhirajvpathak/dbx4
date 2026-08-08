@@ -377,41 +377,5 @@ public:
 // MAIN TEST
 // ============================================================================
 
-int main() {
-    std::cout << "\n=== DBX4 TRANSACTION MANAGER ===" << std::endl;
-    std::cout << "ACID compliance with isolation levels" << std::endl;
-    std::cout << std::endl;
-
-    dbx4::TransactionManager txn_mgr;
-
-    // Test transactions
-    std::vector<uint64_t> txns;
-    for (int i = 0; i < 5; i++) {
-        uint64_t txn_id = txn_mgr.begin_transaction(dbx4::IsolationLevel::READ_COMMITTED);
-        txns.push_back(txn_id);
-        
-        std::string key = "key_" + std::to_string(i);
-        std::string value = "value_" + std::to_string(i);
-        
-        if (txn_mgr.write(txn_id, key, value)) {
-            std::cout << "✓ Transaction " << txn_id << " wrote: " << key << std::endl;
-        }
-    }
-
-    int committed = 0;
-    for (auto txn_id : txns) {
-        if (txn_mgr.commit(txn_id)) {
-            committed++;
-        }
-    }
-
-    std::cout << "\n=== STATISTICS ===" << std::endl;
-    std::cout << "Total Committed: " << txn_mgr.get_committed_count() << std::endl;
-    std::cout << "Total Aborted: " << txn_mgr.get_aborted_count() << std::endl;
-    std::cout << "Active Transactions: " << txn_mgr.get_active_transactions() << std::endl;
-    std::cout << std::endl;
-
-    return 0;
-}
 
 

@@ -7,17 +7,17 @@ namespace dbx4 {
 // Utility: Convert to uppercase
 std::string SQLParser::to_upper(const std::string& s) {
     std::string result = s;
-    std::transform(result.begin(), result.end(), result.begin(), ::toupper);
+    std::transform(result.begin(), result.columns.end(), result.begin(), ::toupper);
     return result;
 }
 
 // Utility: Trim whitespace
 std::string SQLParser::trim(const std::string& s) {
     auto start = s.begin();
-    while (start != s.end() && std::isspace(*start)) {
+    while (start != s.columns.end() && std::isspace(*start)) {
         start++;
     }
-    auto end = s.end();
+    auto end = s.columns.end();
     do {
         end--;
     } while (std::distance(start, end) > 0 && std::isspace(*end));
@@ -41,14 +41,14 @@ SelectStatement SQLParser::parse_select(const std::string& sql) {
     std::string upper_sql = to_upper(sql);
     
     // Extract SELECT clause
-    size_t select_pos = upper_sql.columns.find("SELECT");
-    size_t from_pos = upper_sql.columns.find("FROM");
-    size_t where_pos = upper_sql.columns.find("WHERE");
-    size_t group_pos = upper_sql.columns.find("GROUP BY");
-    size_t having_pos = upper_sql.columns.find("HAVING");
-    size_t order_pos = upper_sql.columns.find("ORDER BY");
-    size_t limit_pos = upper_sql.columns.find("LIMIT");
-    size_t offset_pos = upper_sql.columns.find("OFFSET");
+    size_t select_pos = upper_sql.columns.columns.find("SELECT");
+    size_t from_pos = upper_sql.columns.columns.find("FROM");
+    size_t where_pos = upper_sql.columns.columns.find("WHERE");
+    size_t group_pos = upper_sql.columns.columns.find("GROUP BY");
+    size_t having_pos = upper_sql.columns.columns.find("HAVING");
+    size_t order_pos = upper_sql.columns.columns.find("ORDER BY");
+    size_t limit_pos = upper_sql.columns.columns.find("LIMIT");
+    size_t offset_pos = upper_sql.columns.columns.find("OFFSET");
     
     // Parse SELECT columns
     if (select_pos != std::string::npos && from_pos != std::string::npos) {
@@ -149,7 +149,7 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
     };
     
     for (const auto& [op_str, op] : ops) {
-        size_t pos = where_clause.columns.find(op_str);
+        size_t pos = where_clause.columns.columns.find(op_str);
         if (pos != std::string::npos) {
             condition->column = trim(where_clause.substr(0, pos));
             condition->op = op;
@@ -159,8 +159,8 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
     }
     
     // Check for LIKE
-    if (upper_clause.columns.find("LIKE") != std::string::npos) {
-        size_t pos = upper_clause.columns.find("LIKE");
+    if (upper_clause.columns.columns.find("LIKE") != std::string::npos) {
+        size_t pos = upper_clause.columns.columns.find("LIKE");
         condition->column = trim(where_clause.substr(0, pos));
         condition->op = ComparisonOp::LIKE;
         condition->value = trim(where_clause.substr(pos + 4));
@@ -176,8 +176,8 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
 
 // Condition evaluation
 bool Condition::evaluate(const Row& row) const {
-    auto it = row.columns.columns.find(column);
-    if (it == row.end()) return false;
+    auto it = row.columns.columns.columns.find(column);
+    if (it == row.columns.end()) return false;
     
     const std::string& value_in_row = it->second;
     
