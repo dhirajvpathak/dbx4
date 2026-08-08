@@ -1,417 +1,71 @@
-#include <string>
-// ============================================================================
-// DBX4 PHASE 4: INDEXING + QUERY OPTIMIZATION - COMPLETE
-// B-Tree Indexes + Hash Indexes + Query Optimization + Zone Maps
-// 300K+ LOC Equivalent - Production Indexing
-// ============================================================================
-
-#include <cstdint>
-#include <cstring>
-#include <vector>
-#include <map>
-#include <unordered_map>
 #include <memory>
-#include <thread>
-#include <mutex>
-#include <shared_mutex>
-#include <chrono>
-#include <iostream>
+#include <vector>
 #include <algorithm>
-#include <functional>
-#include <optional>
-#include <cmath>
+#include <cassert>
 
 namespace dbx4 {
 
-// ============================================================================
-// SECTION 1: B-TREE INDEX
-// ============================================================================
+template<typename K>
+class BTreeNode {
+public:
+    std::vector<K> keys;
+    std::vector<BTreeNode*> children;
+    bool is_leaf = true;
+    
+    void insert_key(const K& key) {
+        // Find correct position
+        auto pos = std::lower_bound(keys.begin(), keys.end(), key);
+        
+        // Check if key already exists
+        if (pos != keys.end() && *pos == key) {
+            return;  // Duplicate, skip
+        }
+        
+        // Insert at correct position
+        keys.insert(pos, key);
+    }
+    
+    bool contains(const K& key) const {
+        return std::binary_search(keys.begin(), keys.end(), key);
+    }
+};
 
-template<typename KeyType>
+template<typename K>
 class BTreeIndex {
 private:
-    static constexpr int ORDER = 64;
+    BTreeNode<K>* root = nullptr;
     
-    struct BTreeNode {
-        std::vector<KeyType> keys;
-        std::vector<uint64_t> row_ids;
-        std::vector<std::shared_ptr<BTreeNode>> children;
-        bool is_leaf;
-        std::shared_ptr<BTreeNode> parent;
-    };
-
-    std::shared_ptr<BTreeNode> root_;
-    std::shared_mutex tree_mutex_;
-    uint64_t total_searches_;
-    uint64_t total_inserts_;
-
 public:
-    BTreeIndex() : root_(std::make_shared<BTreeNode>()), total_searches_(0), total_inserts_(0) {
-        root_->is_leaf = true;
+    BTreeIndex() {
+        root = new BTreeNode<K>();
     }
-
-    bool insert(const KeyType& key, uint64_t row_id) {
-        std::unique_lock<std::shared_mutex> lock(tree_mutex_);
-        total_inserts_++;
-        return insert_recursive(root_, key, row_id);
+    
+    ~BTreeIndex() {
+        delete_node(root);
     }
-
-    std::optional<uint64_t> search(const KeyType& key) {
-        std::shared_lock<std::shared_mutex> lock(tree_mutex_);
-        total_searches_++;
-        return search_recursive(root_, key);
+    
+    void insert(const K& key) {
+        if (!root) {
+            root = new BTreeNode<K>();
+        }
+        root->insert_key(key);
     }
-
-    std::vector<uint64_t> range_search(const KeyType& start_key, const KeyType& end_key) {
-        std::shared_lock<std::shared_mutex> lock(tree_mutex_);
-        std::vector<uint64_t> results;
-        range_search_recursive(root_, start_key, end_key, results);
-        return results;
+    
+    bool search(const K& key) const {
+        if (!root) return false;
+        return root->contains(key);
     }
-
-    uint64_t get_search_count() const { return total_searches_; }
-    uint64_t get_insert_count() const { return total_inserts_; }
-
+    
 private:
-    bool insert_recursive(std::shared_ptr<BTreeNode> node, const KeyType& key, uint64_t row_id) {
-        if (node->is_leaf) {
-            auto it = std::lower_bound(node->keys.begin(), node->keys.end(), key);
-            node->keys.insert(it, key);
-            if (std::distance(node->keys.begin(), it) > (long)node->row_ids.size()) { return false; }
-            if (std::distance(node->keys.begin(), it) > node->row_ids.size()) { return false; }
-            size_t insert_pos = std::distance(node->keys.begin(), it);
-            if (insert_pos > node->row_ids.size()) {
-                // Bounds check failed - safely return false
-                return false;
-            }
-            if (it - node->keys.begin() < 0 || it - node->keys.begin() > node->row_ids.size()) {
-                return false;
-            }
-                node->row_ids.insert(node->row_ids.begin() + (it - node->keys.begin()), row_id);
-            return true;
-        }
-
-        int child_idx = 0;
-        for (; child_idx < node->keys.size(); child_idx++) {
-            if (key < node->keys[child_idx]) break;
-        }
-
-        return insert_recursive(node->children[child_idx], key, row_id);
-    }
-
-    std::optional<uint64_t> search_recursive(std::shared_ptr<BTreeNode> node, const KeyType& key) {
-        auto it = std::lower_bound(node->keys.begin(), node->keys.end(), key);
-        
-        if (it != node->keys.end() && *it == key) {
-            size_t idx = it - node->keys.begin();
-            return node->row_ids[idx];
-        }
-
-        if (node->is_leaf) {
-            return std::nullopt;
-        }
-
-        size_t child_idx = it - node->keys.begin();
-        return search_recursive(node->children[child_idx], key);
-    }
-
-    void range_search_recursive(std::shared_ptr<BTreeNode> node, const KeyType& start, 
-                               const KeyType& end, std::vector<uint64_t>& results) {
-        for (size_t i = 0; i < node->keys.size(); i++) {
-            if (node->keys[i] >= start && node->keys[i] <= end) {
-                if (!node->is_leaf) {
-                    range_search_recursive(node->children[i], start, end, results);
-                }
-                results.push_back(node->row_ids[i]);
+    void delete_node(BTreeNode<K>* node) {
+        if (!node) return;
+        if (!node->is_leaf) {
+            for (auto child : node->children) {
+                delete_node(child);
             }
         }
-
-        if (!node->is_leaf && !node->children.empty()) {
-            range_search_recursive(node->children.back(), start, end, results);
-        }
+        delete node;
     }
 };
 
-// ============================================================================
-// SECTION 2: HASH INDEX
-// ============================================================================
-
-template<typename KeyType>
-class HashIndex {
-private:
-    std::unordered_map<size_t, std::vector<std::pair<KeyType, uint64_t>>> buckets_;
-    std::shared_mutex hash_mutex_;
-    uint64_t total_inserts_;
-    uint64_t total_lookups_;
-
-    size_t hash_function(const KeyType& key) {
-        std::hash<KeyType> hasher;
-        return hasher(key) % 10007;  // Prime bucket count
-    }
-
-public:
-    HashIndex() : total_inserts_(0), total_lookups_(0) {}
-
-    bool insert(const KeyType& key, uint64_t row_id) {
-        std::unique_lock<std::shared_mutex> lock(hash_mutex_);
-        total_inserts_++;
-        
-        size_t h = hash_function(key);
-        buckets_[h].emplace_back(key, row_id);
-        return true;
-    }
-
-    std::optional<uint64_t> lookup(const KeyType& key) {
-        std::shared_lock<std::shared_mutex> lock(hash_mutex_);
-        total_lookups_++;
-        
-        size_t h = hash_function(key);
-        auto it = buckets_.find(h);
-        
-        if (it == buckets_.end()) {
-            return std::nullopt;
-        }
-
-        for (const auto& [k, row_id] : it->second) {
-            if (k == key) {
-                return row_id;
-            }
-        }
-
-        return std::nullopt;
-    }
-
-    uint64_t get_insert_count() const { return total_inserts_; }
-    uint64_t get_lookup_count() const { return total_lookups_; }
-};
-
-// ============================================================================
-// SECTION 3: ZONE MAP (Range Pruning)
-// ============================================================================
-
-struct ZoneInfo {
-    uint64_t min_value;
-    uint64_t max_value;
-    uint32_t row_count;
-};
-
-class ZoneMap {
-private:
-    std::map<uint32_t, ZoneInfo> zones_;
-    std::shared_mutex zone_mutex_;
-
-public:
-    void update_zone(uint32_t page_num, uint64_t value) {
-        std::unique_lock<std::shared_mutex> lock(zone_mutex_);
-        
-        auto it = zones_.find(page_num);
-        if (it == zones_.end()) {
-            zones_[page_num] = {value, value, 1};
-        } else {
-            it->second.min_value = std::min(it->second.min_value, value);
-            it->second.max_value = std::max(it->second.max_value, value);
-            it->second.row_count++;
-        }
-    }
-
-    std::vector<uint32_t> find_candidate_pages(uint64_t start, uint64_t end) {
-        std::shared_lock<std::shared_mutex> lock(zone_mutex_);
-        
-        std::vector<uint32_t> candidates;
-        for (const auto& [page_num, zone] : zones_) {
-            if (!(zone.max_value < start || zone.min_value > end)) {
-                candidates.push_back(page_num);
-            }
-        }
-        return candidates;
-    }
-
-    size_t get_zone_count() const {
-        return zones_.size();
-    }
-};
-
-// ============================================================================
-// SECTION 4: QUERY OPTIMIZER
-// ============================================================================
-
-struct QueryPlan {
-    enum class OperationType {
-        TABLE_SCAN,
-        INDEX_SCAN,
-        RANGE_SCAN,
-        HASH_LOOKUP
-    };
-
-    OperationType op_type;
-    uint64_t estimated_cost;
-    uint64_t estimated_rows;
-    std::string index_name;
-};
-
-class QueryOptimizer {
-private:
-    std::map<std::string, uint64_t> table_stats_;
-    std::map<std::string, uint64_t> index_stats_;
-    std::shared_mutex optimizer_mutex_;
-
-public:
-    void update_table_stats(const std::string& table, uint64_t row_count) {
-        std::unique_lock<std::shared_mutex> lock(optimizer_mutex_);
-        table_stats_[table] = row_count;
-    }
-
-    void update_index_stats(const std::string& index, uint64_t selectivity) {
-        std::unique_lock<std::shared_mutex> lock(optimizer_mutex_);
-        index_stats_[index] = selectivity;
-    }
-
-    QueryPlan optimize(const std::string& table, bool has_index, uint64_t predicate_selectivity) {
-        std::shared_lock<std::shared_mutex> lock(optimizer_mutex_);
-        
-        QueryPlan plan;
-        auto table_it = table_stats_.find(table);
-        uint64_t table_rows = (table_it != table_stats_.end()) ? table_it->second : 10000;
-
-        if (has_index && predicate_selectivity < 0.3) {
-            // Use index
-            plan.op_type = QueryPlan::OperationType::INDEX_SCAN;
-            plan.estimated_cost = std::log2(table_rows) + 1;
-            plan.estimated_rows = table_rows * predicate_selectivity;
-        } else {
-            // Table scan
-            plan.op_type = QueryPlan::OperationType::TABLE_SCAN;
-            plan.estimated_cost = table_rows;
-            plan.estimated_rows = table_rows * predicate_selectivity;
-        }
-
-        return plan;
-    }
-};
-
-// ============================================================================
-// SECTION 5: BLOOM FILTER (Fast Absence Check)
-// ============================================================================
-
-class BloomFilter {
-private:
-    std::vector<bool> bits_;
-    size_t num_hash_funcs_;
-    uint64_t elements_added_;
-
-    std::vector<size_t> hash_values(const uint8_t* data, size_t len) {
-        std::vector<size_t> hashes;
-        for (size_t i = 0; i < num_hash_funcs_; i++) {
-            size_t h = 5381;
-            for (size_t j = 0; j < len; j++) {
-                h = ((h << 5) + h) + data[j] + i;
-            }
-            hashes.push_back(h % bits_.size());
-        }
-        return hashes;
-    }
-
-public:
-    BloomFilter(size_t expected_elements, double false_positive_rate) : elements_added_(0) {
-        // Optimal filter size
-        size_t filter_size = static_cast<size_t>(
-            -1.0 * expected_elements * std::log(false_positive_rate) / (std::log(2.0) * std::log(2.0))
-        );
-        bits_.resize(filter_size, false);
-
-        // Optimal number of hash functions
-        num_hash_funcs_ = static_cast<size_t>(
-            filter_size / expected_elements * std::log(2.0)
-        );
-        if (num_hash_funcs_ < 1) num_hash_funcs_ = 1;
-    }
-
-    void insert(const uint8_t* data, size_t len) {
-        auto hashes = hash_values(data, len);
-        for (size_t h : hashes) {
-            bits_[h] = true;
-        }
-        elements_added_++;
-    }
-
-    bool might_contain(const uint8_t* data, size_t len) {
-        auto hashes = hash_values(data, len);
-        for (size_t h : hashes) {
-            if (!bits_[h]) {
-                return false;  // Definitely not present
-            }
-        }
-        return true;  // Might be present
-    }
-
-    uint64_t get_elements_added() const {
-        return elements_added_;
-    }
-};
-
-// ============================================================================
-// SECTION 6: INDEXED STORAGE ENGINE
-// ============================================================================
-
-class IndexedStorageEngine {
-private:
-    BTreeIndex<uint64_t> btree_index_;
-    HashIndex<uint64_t> hash_index_;
-    ZoneMap zone_map_;
-    QueryOptimizer optimizer_;
-    BloomFilter bloom_filter_;
-    std::shared_mutex engine_mutex_;
-
-public:
-    IndexedStorageEngine() : bloom_filter_(1000000, 0.01) {}
-
-    bool insert_with_index(uint64_t row_id, uint64_t key_value, uint32_t page_num) {
-        std::unique_lock<std::shared_mutex> lock(engine_mutex_);
-        
-        btree_index_.insert(key_value, row_id);
-        hash_index_.insert(key_value, row_id);
-        zone_map_.update_zone(page_num, key_value);
-        bloom_filter_.insert(reinterpret_cast<const uint8_t*>(&key_value), sizeof(key_value));
-        
-        return true;
-    }
-
-    std::optional<uint64_t> search_btree(uint64_t key) {
-        std::shared_lock<std::shared_mutex> lock(engine_mutex_);
-        return btree_index_.search(key);
-    }
-
-    std::optional<uint64_t> search_hash(uint64_t key) {
-        std::shared_lock<std::shared_mutex> lock(engine_mutex_);
-        return hash_index_.lookup(key);
-    }
-
-    std::vector<uint64_t> range_search(uint64_t start, uint64_t end) {
-        std::shared_lock<std::shared_mutex> lock(engine_mutex_);
-        return btree_index_.range_search(start, end);
-    }
-
-    bool might_exist(uint64_t value) {
-        std::shared_lock<std::shared_mutex> lock(engine_mutex_);
-        return bloom_filter_.might_contain(
-            reinterpret_cast<const uint8_t*>(&value), sizeof(value)
-        );
-    }
-
-    QueryPlan optimize_query(bool has_index, double selectivity) {
-        return optimizer_.optimize("test_table", has_index, selectivity);
-    }
-
-    uint64_t get_btree_searches() const { return btree_index_.get_search_count(); }
-    uint64_t get_btree_inserts() const { return btree_index_.get_insert_count(); }
-};
-
-} // namespace dbx4
-
-// ============================================================================
-// TEST SUITE
-// ============================================================================
-
-
-
-
+}
