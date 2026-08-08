@@ -58,11 +58,11 @@ std::shared_ptr<ASTNode> SQLParser::parse_statement() {
     if (check(TokenType::CREATE)) {
         return parse_create_table();
     } else if (check(TokenType::SELECT)) {
-        return parse_select();
+//         return parse_select();
     } else if (check(TokenType::INSERT)) {
-        return parse_insert();
+//         return parse_insert();
     } else if (check(TokenType::UPDATE)) {
-        return parse_update();
+//         return parse_update();
     } else if (check(TokenType::DELETE)) {
         return parse_delete();
     }
@@ -168,7 +168,7 @@ std::shared_ptr<CreateTableStmt> SQLParser::parse_create_table() {
     return stmt;
 }
 
-std::shared_ptr<SelectStatement> SQLParser::parse_select() {
+// std::shared_ptr<SelectStatement> SQLParser::parse_select() {
     auto stmt = std::make_shared<SelectStatement>();
     
     consume(TokenType::SELECT, "Expected SELECT");
@@ -271,7 +271,7 @@ std::shared_ptr<SelectStatement> SQLParser::parse_select() {
     return stmt;
 }
 
-std::shared_ptr<InsertStmt> SQLParser::parse_insert() {
+// std::shared_ptr<InsertStmt> SQLParser::parse_insert() {
     auto stmt = std::make_shared<InsertStmt>();
     
     consume(TokenType::INSERT, "Expected INSERT");
@@ -319,7 +319,7 @@ std::shared_ptr<InsertStmt> SQLParser::parse_insert() {
     return stmt;
 }
 
-std::shared_ptr<UpdateStmt> SQLParser::parse_update() {
+// std::shared_ptr<UpdateStmt> SQLParser::parse_update() {
     auto stmt = std::make_shared<UpdateStmt>();
     
     consume(TokenType::UPDATE, "Expected UPDATE");

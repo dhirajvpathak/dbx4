@@ -14,7 +14,6 @@ struct ColumnDef { std::string name; TokenType type; bool not_null = false; bool
 struct CreateTableStmt : public ASTNode { std::string table_name; std::vector<ColumnDef> columns; };
 struct SelectStatement : public ASTNode { bool distinct = false; std::vector<std::shared_ptr<Expression>> columns; std::string table_name; std::shared_ptr<Expression> where_clause; std::vector<std::pair<std::string, bool>> order_by; int limit = -1; int offset = 0; };
     std::vector<std::string> column_aliases;
-    std::vector<std::string> column_aliases;
 struct InsertStmt : public ASTNode { std::string table_name; std::vector<std::string> columns; std::vector<std::vector<std::shared_ptr<Expression>>> values; };
 struct UpdateStmt : public ASTNode { std::string table_name; std::vector<std::pair<std::string, std::shared_ptr<Expression>>> assignments; std::shared_ptr<Expression> where_clause; };
 struct DeleteStmt : public ASTNode { std::string table_name; std::shared_ptr<Expression> where_clause; };

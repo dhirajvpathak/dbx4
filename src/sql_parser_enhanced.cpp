@@ -41,14 +41,14 @@ SelectStatement SQLParser::parse_select(const std::string& sql) {
     std::string upper_sql = to_upper(sql);
     
     // Extract SELECT clause
-    size_t select_pos = upper_sql.find("SELECT");
-    size_t from_pos = upper_sql.find("FROM");
-    size_t where_pos = upper_sql.find("WHERE");
-    size_t group_pos = upper_sql.find("GROUP BY");
-    size_t having_pos = upper_sql.find("HAVING");
-    size_t order_pos = upper_sql.find("ORDER BY");
-    size_t limit_pos = upper_sql.find("LIMIT");
-    size_t offset_pos = upper_sql.find("OFFSET");
+    size_t select_pos = upper_sql.columns.find("SELECT");
+    size_t from_pos = upper_sql.columns.find("FROM");
+    size_t where_pos = upper_sql.columns.find("WHERE");
+    size_t group_pos = upper_sql.columns.find("GROUP BY");
+    size_t having_pos = upper_sql.columns.find("HAVING");
+    size_t order_pos = upper_sql.columns.find("ORDER BY");
+    size_t limit_pos = upper_sql.columns.find("LIMIT");
+    size_t offset_pos = upper_sql.columns.find("OFFSET");
     
     // Parse SELECT columns
     if (select_pos != std::string::npos && from_pos != std::string::npos) {
@@ -149,7 +149,7 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
     };
     
     for (const auto& [op_str, op] : ops) {
-        size_t pos = where_clause.find(op_str);
+        size_t pos = where_clause.columns.find(op_str);
         if (pos != std::string::npos) {
             condition->column = trim(where_clause.substr(0, pos));
             condition->op = op;
@@ -159,8 +159,8 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
     }
     
     // Check for LIKE
-    if (upper_clause.find("LIKE") != std::string::npos) {
-        size_t pos = upper_clause.find("LIKE");
+    if (upper_clause.columns.find("LIKE") != std::string::npos) {
+        size_t pos = upper_clause.columns.find("LIKE");
         condition->column = trim(where_clause.substr(0, pos));
         condition->op = ComparisonOp::LIKE;
         condition->value = trim(where_clause.substr(pos + 4));
@@ -176,7 +176,7 @@ std::shared_ptr<Condition> SQLParser::parse_where(const std::string& where_claus
 
 // Condition evaluation
 bool Condition::evaluate(const Row& row) const {
-    auto it = row.find(column);
+    auto it = row.columns.columns.find(column);
     if (it == row.end()) return false;
     
     const std::string& value_in_row = it->second;
@@ -205,13 +205,13 @@ bool Condition::evaluate(const Row& row) const {
                     pattern_pos++;
                     if (pattern_pos >= pattern.length()) return true;
                     while (text_pos < value_in_row.length() && 
-                           value_in_row[text_pos] != pattern[pattern_pos]) {
+                           value_in_row.columns[text_pos] != pattern[pattern_pos]) {
                         text_pos++;
                     }
                 } else if (pattern[pattern_pos] == '_') {
                     pattern_pos++;
                     text_pos++;
-                } else if (pattern[pattern_pos] == value_in_row[text_pos]) {
+                } else if (pattern[pattern_pos] == value_in_row.columns[text_pos]) {
                     pattern_pos++;
                     text_pos++;
                 } else {

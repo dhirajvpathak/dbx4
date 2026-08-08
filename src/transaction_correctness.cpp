@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <string>
 #include "dbx4/transaction_state.h"
 #include <iostream>
 #include <map>

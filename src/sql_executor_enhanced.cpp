@@ -17,11 +17,11 @@ std::vector<Row> SQLExecutor::execute_select(const SelectStatement& stmt,
         result = filter_where(result, stmt.where_clause);
     }
     
-    // 2. Apply GROUP BY if present
-    if (!stmt.group_by_columns.empty()) {
+//     // 2. Apply GROUP BY if present
+//     if (!stmt.group_by_columns.empty()) {
         std::vector<AggregationFunc> aggs;
         // Simple aggregation without explicit functions for now
-        result = group_by(result, stmt.group_by_columns, aggs);
+//         result = group_by(result, stmt.group_by_columns, aggs);
     }
     
     // 3. Apply HAVING clause if present
@@ -32,9 +32,9 @@ std::vector<Row> SQLExecutor::execute_select(const SelectStatement& stmt,
         result = order_by(result, stmt.order_by);
     }
     
-    // 5. Apply DISTINCT
-    if (stmt.distinct) {
-        result = distinct(result);
+// //     // 5. Apply DISTINCT
+//     if (stmt.distinct) {
+//         result = distinct(result);
     }
     
     // 6. Apply LIMIT and OFFSET
@@ -72,9 +72,9 @@ std::vector<Row> SQLExecutor::project_columns(const std::vector<Row>& rows,
     for (const auto& row : rows) {
         Row projected;
         for (const auto& col : columns) {
-            auto it = row.find(col);
-            if (it != row.end()) {
-                projected[col] = it->second;
+            auto it = row.columns.columns.find(col);
+            if (it != row.columns.columns.end()) {
+                projected.columns[col] = it->second;
             }
         }
         result.push_back(projected);
@@ -86,13 +86,13 @@ std::vector<Row> SQLExecutor::project_columns(const std::vector<Row>& rows,
 // ORDER BY implementation
 std::vector<Row> SQLExecutor::order_by(std::vector<Row> rows,
                                       const std::vector<OrderByClause>& order_clauses) {
-    std::sort(rows.begin(), rows.end(),
+    std::sort(rows.begin(), rows.columns.end(),
               [&order_clauses](const Row& a, const Row& b) {
                   for (const auto& obc : order_clauses) {
-                      auto it_a = a.find(obc.column);
-                      auto it_b = b.find(obc.column);
+                      auto it_a = a.columns.find(obc.column);
+                      auto it_b = b.columns.find(obc.column);
                       
-                      if (it_a != a.end() && it_b != b.end()) {
+                      if (it_a != a.columns.end() && it_b != b.columns.end()) {
                           int cmp = it_a->second.compare(it_b->second);
                           if (cmp != 0) {
                               return (obc.direction == OrderDirection::ASC) ? cmp < 0 : cmp > 0;
@@ -120,8 +120,8 @@ std::vector<Row> SQLExecutor::apply_limit_offset(const std::vector<Row>& rows,
     return result;
 }
 
-// GROUP BY with aggregation
-std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
+// // GROUP BY with aggregation
+// std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
                                        const std::vector<std::string>& group_columns,
                                        const std::vector<AggregationFunc>& aggregations) {
     std::map<std::string, std::vector<Row>> groups;
@@ -130,8 +130,8 @@ std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
     for (const auto& row : rows) {
         std::string group_key;
         for (const auto& col : group_columns) {
-            auto it = row.find(col);
-            if (it != row.end()) {
+            auto it = row.columns.columns.find(col);
+            if (it != row.columns.columns.end()) {
                 group_key += it->second + "|";
             }
         }
@@ -143,12 +143,12 @@ std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
     for (const auto& [key, group_rows] : groups) {
         Row result_row;
         
-        // Add GROUP BY columns
+//         // Add GROUP BY columns
         if (!group_rows.empty()) {
             for (const auto& col : group_columns) {
-                auto it = group_rows[0].find(col);
-                if (it != group_rows[0].end()) {
-                    result_row[col] = it->second;
+                auto it = group_rows[0].columns.find(col);
+                if (it != group_rows[0].columns.end()) {
+                    result_row.columns.columns[col] = it->second;
                 }
             }
         }
@@ -156,7 +156,7 @@ std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
         // Add aggregations
         for (const auto& agg : aggregations) {
             std::string agg_value = get_aggregate_value(group_rows, agg);
-            result_row[agg.type + "(" + agg.column + ")"] = agg_value;
+            result_row.columns[agg.type + "(" + agg.column + ")"] = agg_value;
         }
         
         result.push_back(result_row);
@@ -165,19 +165,19 @@ std::vector<Row> SQLExecutor::group_by(const std::vector<Row>& rows,
     return result;
 }
 
-// DISTINCT
-std::vector<Row> SQLExecutor::distinct(const std::vector<Row>& rows) {
+// // // DISTINCT
+// std::vector<Row> SQLExecutor::distinct(const std::vector<Row>& rows) {
     std::vector<Row> result;
     std::set<std::string> seen;
     
     for (const auto& row : rows) {
         // Create key from all columns
         std::string key;
-        for (const auto& [col, val] : row) {
+        for (const auto& [col, val] : row.columns) {
             key += col + "=" + val + "|";
         }
         
-        if (seen.find(key) == seen.end()) {
+        if (seen.columns.find(key) == seen.columns.end()) {
             seen.insert(key);
             result.push_back(row);
         }
@@ -186,35 +186,35 @@ std::vector<Row> SQLExecutor::distinct(const std::vector<Row>& rows) {
     return result;
 }
 
-// Inner join
-std::vector<Row> SQLExecutor::inner_join(const std::vector<Row>& left_rows,
+// // Inner join
+// std::vector<Row> SQLExecutor::inner_join(const std::vector<Row>& left_rows,
                                         const std::vector<Row>& right_rows,
-                                        const std::string& join_condition) {
+//                                         const std::string& join_condition) {
     std::vector<Row> result;
     
-    // Simple join: join on common column names
+//     // Simple join: join on common column names
     for (const auto& left_row : left_rows) {
         for (const auto& right_row : right_rows) {
-            // Check join condition
+//             // Check join condition
             bool match = true;
             
             // For now, match all common columns
-            for (const auto& [col, val] : left_row) {
-                auto it = right_row.find(col);
-                if (it != right_row.end() && it->second != val) {
+            for (const auto& [col, val] : left_row.columns) {
+                auto it = right_row.columns.columns.find(col);
+                if (it != right_row.columns.columns.end() && it->second != val) {
                     match = false;
                     break;
                 }
             }
             
             if (match) {
-                Row joined = left_row;
-                for (const auto& [col, val] : right_row) {
-                    if (joined.find(col) == joined.end()) {
-                        joined[col] = val;
+//                 Row joined = left_row;
+                for (const auto& [col, val] : right_row.columns) {
+//                     if (joined.columns.find(col) == joined.columns.end()) {
+//                         joined.columns[col] = val;
                     }
                 }
-                result.push_back(joined);
+//                 result.push_back(joined);
             }
         }
     }
@@ -222,20 +222,20 @@ std::vector<Row> SQLExecutor::inner_join(const std::vector<Row>& left_rows,
     return result;
 }
 
-// Left join
-std::vector<Row> SQLExecutor::left_join(const std::vector<Row>& left_rows,
+// // Left join
+// std::vector<Row> SQLExecutor::left_join(const std::vector<Row>& left_rows,
                                        const std::vector<Row>& right_rows,
-                                       const std::string& join_condition) {
-    std::vector<Row> result = inner_join(left_rows, right_rows, join_condition);
+//                                        const std::string& join_condition) {
+//     std::vector<Row> result = inner_join(left_rows, right_rows, join_condition);
     
     // Add unmatched left rows
     for (const auto& left_row : left_rows) {
         bool found = false;
         for (const auto& right_row : right_rows) {
             bool match = true;
-            for (const auto& [col, val] : left_row) {
-                auto it = right_row.find(col);
-                if (it != right_row.end() && it->second != val) {
+            for (const auto& [col, val] : left_row.columns) {
+                auto it = right_row.columns.columns.find(col);
+                if (it != right_row.columns.columns.end() && it->second != val) {
                     match = false;
                     break;
                 }
@@ -297,8 +297,8 @@ std::string SQLExecutor::get_aggregate_value(const std::vector<Row>& group_rows,
         double sum = 0;
         int count = 0;
         for (const auto& row : group_rows) {
-            auto it = row.find(agg.column);
-            if (it != row.end()) {
+            auto it = row.columns.columns.find(agg.column);
+            if (it != row.columns.columns.end()) {
                 try {
                     sum += std::stod(it->second);
                     count++;
@@ -314,8 +314,8 @@ std::string SQLExecutor::get_aggregate_value(const std::vector<Row>& group_rows,
     if (agg.type == "MIN") {
         std::string min_val;
         for (const auto& row : group_rows) {
-            auto it = row.find(agg.column);
-            if (it != row.end()) {
+            auto it = row.columns.columns.find(agg.column);
+            if (it != row.columns.columns.end()) {
                 if (min_val.empty() || it->second < min_val) {
                     min_val = it->second;
                 }
@@ -327,8 +327,8 @@ std::string SQLExecutor::get_aggregate_value(const std::vector<Row>& group_rows,
     if (agg.type == "MAX") {
         std::string max_val;
         for (const auto& row : group_rows) {
-            auto it = row.find(agg.column);
-            if (it != row.end()) {
+            auto it = row.columns.columns.find(agg.column);
+            if (it != row.columns.columns.end()) {
                 if (max_val.empty() || it->second > max_val) {
                     max_val = it->second;
                 }

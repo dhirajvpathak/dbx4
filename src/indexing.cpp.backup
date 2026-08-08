@@ -87,6 +87,7 @@ private:
             if (it - node->keys.begin() < 0 || it - node->keys.begin() > node->row_ids.size()) {
                 return false;
             }
+    if (pos > tree->children.size()) pos = tree->children.size();  // Add bounds check
                 node->row_ids.insert(node->row_ids.begin() + (it - node->keys.begin()), row_id);
             return true;
         }
