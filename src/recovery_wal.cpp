@@ -1,8 +1,10 @@
 #include <string>
 #include <vector>
+#include <map>
 #include <fstream>
 #include <sstream>
-#include <map>
+#include <cstdint>
+#include <cstring>
 
 namespace dbx4 {
 
@@ -10,61 +12,115 @@ struct WALRecord {
     int txn_id;
     int committed;
     std::string data;
-};
-
-class RecoveryManager {
-private:
-    std::map<int, bool> persisted_committed;  // txn_id -> committed flag
     
-public:
-    void mark_committed(int txn_id) {
-        persisted_committed[txn_id] = true;
-        persist_to_wal(txn_id);
+    // Length-prefixed encoding (not lossy delimiter-based)
+    std::string serialize() const {
+        std::string result;
+        // txn_id (4 bytes)
+        result.append(const_cast<char*>(reinterpret_cast<const char*>(&txn_id)), 4);
+        // committed (4 bytes)
+        result.append(const_cast<char*>(reinterpret_cast<const char*>(&committed)), 4);
+        // data length (4 bytes)
+        uint32_t len = data.length();
+        result.append(const_cast<char*>(reinterpret_cast<const char*>(&len)), 4);
+        // data (variable)
+        result.append(data);
+        return result;
     }
     
-    void persist_to_wal(int txn_id) {
-        // Persist committed flag to WAL file
-        std::ofstream wal("/tmp/dbx4.wal", std::ios::app);
-        wal << "COMMIT|" << txn_id << "\n";
+    static WALRecord deserialize(const std::string& serialized) {
+        WALRecord rec;
+        if (serialized.size() < 12) return rec;
+        
+        std::memcpy(&rec.txn_id, serialized.data(), 4);
+        std::memcpy(&rec.committed, serialized.data() + 4, 4);
+        uint32_t len;
+        std::memcpy(&len, serialized.data() + 8, 4);
+        
+        if (serialized.size() < 12 + len) return rec;
+        rec.data = serialized.substr(12, len);
+        
+        return rec;
+    }
+};
+
+class WALManager {
+private:
+    std::string wal_path;
+    std::map<int, bool> persisted_committed;
+    
+public:
+    WALManager(const std::string& path) : wal_path(path) {}
+    
+    void write_record(const WALRecord& record) {
+        std::ofstream wal(wal_path, std::ios::binary | std::ios::app);
+        std::string serialized = record.serialize();
+        wal.write(serialized.c_str(), serialized.length());
         wal.close();
+    }
+    
+    void mark_committed(int txn_id) {
+        persisted_committed[txn_id] = true;
+        
+        // Write COMMIT marker to WAL
+        WALRecord commit_rec;
+        commit_rec.txn_id = txn_id;
+        commit_rec.committed = 1;
+        commit_rec.data = "COMMIT";
+        write_record(commit_rec);
     }
     
     std::vector<WALRecord> recover() {
         std::vector<WALRecord> recovered;
         persisted_committed.clear();
         
-        // Read committed flags from WAL
-        std::ifstream wal("/tmp/dbx4.wal");
-        std::string line;
-        while (std::getline(wal, line)) {
-            if (line.find("COMMIT|") == 0) {
-                int txn_id = std::stoi(line.substr(7));
-                persisted_committed[txn_id] = true;
-            }
-        }
+        // First pass: read all commit markers
+        std::ifstream wal(wal_path, std::ios::binary);
+        if (!wal.is_open()) return recovered;
+        
+        std::string buffer((std::istreambuf_iterator<char>(wal)),
+                          std::istreambuf_iterator<char>());
         wal.close();
         
-        // Recover only committed transactions
-        std::ifstream data("/tmp/dbx4.data");
-        while (std::getline(data, line)) {
-            if (line.empty()) continue;
+        // Parse records
+        size_t pos = 0;
+        while (pos < buffer.length()) {
+            if (pos + 12 > buffer.length()) break;
             
-            std::istringstream iss(line);
-            int txn_id;
-            std::string record_data;
+            uint32_t len;
+            std::memcpy(&len, buffer.data() + pos + 8, 4);
             
-            iss >> txn_id;
-            std::getline(iss, record_data);
+            if (pos + 12 + len > buffer.length()) break;
             
-            if (persisted_committed.count(txn_id) && persisted_committed[txn_id]) {
-                WALRecord rec;
-                rec.txn_id = txn_id;
-                rec.committed = 1;
-                rec.data = record_data;
+            std::string rec_data = buffer.substr(pos, 12 + len);
+            WALRecord rec = WALRecord::deserialize(rec_data);
+            
+            if (rec.committed == 1) {
+                persisted_committed[rec.txn_id] = true;
+            }
+            
+            pos += 12 + len;
+        }
+        
+        // Second pass: recover committed records only
+        pos = 0;
+        while (pos < buffer.length()) {
+            if (pos + 12 > buffer.length()) break;
+            
+            uint32_t len;
+            std::memcpy(&len, buffer.data() + pos + 8, 4);
+            
+            if (pos + 12 + len > buffer.length()) break;
+            
+            std::string rec_data = buffer.substr(pos, 12 + len);
+            WALRecord rec = WALRecord::deserialize(rec_data);
+            
+            if (persisted_committed.count(rec.txn_id)) {
                 recovered.push_back(rec);
             }
+            
+            pos += 12 + len;
         }
-        data.close();
         
         return recovered;
     }

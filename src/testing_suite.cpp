@@ -107,7 +107,7 @@ void run_unit_tests(TestFramework& tf) {
     // CRC32C Tests (100)
     for (int i = 0; i < 100; i++) {
         tf.register_test("CRC32C_" + std::to_string(i), []() {
-            uint8_t data[256];
+            uint8_t data[256] = {}; (void)data;
             for (int j = 0; j < 256; j++) data[j] = j % 256;
             return true;  // Simplified
         });
@@ -396,7 +396,7 @@ void run_performance_benchmarks() {
         auto start = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < 100000; i++) {
-            volatile int x = i * 2;
+            (void)(i * 2);
         }
 
         auto end = std::chrono::high_resolution_clock::now();
@@ -418,7 +418,7 @@ void run_performance_benchmarks() {
         auto start = std::chrono::high_resolution_clock::now();
         
         for (int i = 0; i < 100000; i++) {
-            auto it = index.find(i % 10000);
+            (void)index.find(i % 10000);
         }
 
         auto end = std::chrono::high_resolution_clock::now();

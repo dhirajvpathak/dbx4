@@ -1,5 +1,4 @@
 #include <string>
-#include <vector>
 #include <map>
 #include <memory>
 
@@ -12,22 +11,10 @@ struct MatchResult {
 
 class AgentIntegration {
 public:
-    MatchResult find_best_match(const std::string& query) {
+    MatchResult find_best_match(const std::string&) {
         MatchResult best;
         best.confidence = -1.0f;
-        best.match_id = "";
-        
-        // TODO: implement matching logic
         return best;
-    }
-    
-    void process_agent_request(const std::string& request) {
-        // Process request
-        (void)request;  // Mark used
-    }
-    
-    std::string get_agent_status() const {
-        return "ready";
     }
 };
 
