@@ -133,7 +133,7 @@ public:
         header_.page_type = static_cast<uint32_t>(PageType::DATA);
         header_.created_timestamp = static_cast<uint32_t>(time(nullptr));
         header_.modified_timestamp = header_.created_timestamp;
-        header_.free_offset = PAGE_HEADER_SIZE + (MAX_SLOTS_PER_PAGE * sizeof(SlotHeader));
+        header_.free_offset = PAGE_HEADER_SIZE;  // Initialize to header end, slots grow dynamically
         data_.resize(PAGE_SIZE, 0);
         last_access_ = std::chrono::system_clock::now();
     }
