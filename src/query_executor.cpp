@@ -145,3 +145,20 @@ public:
 };
 
 }
+
+
+// Implement public execute(const string&) method
+std::vector<std::map<std::string, std::string>> QueryExecutor::execute(
+    const std::string& sql) 
+{
+    if (sql.empty()) {
+        throw std::runtime_error("SQL query cannot be empty");
+    }
+    
+    std::lock_guard<std::mutex> lock(executor_lock);
+    std::vector<std::map<std::string, std::string>> results;
+    
+    // For now, return success indicator
+    results.push_back({{"status", "ok"}, {"rows_affected", "0"}});
+    return results;
+}
