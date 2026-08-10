@@ -635,13 +635,13 @@ public:
         return result;
     }
 
-    bool update_row(const std::string& table_name, uint64_t row_id, const Row& new_row) {
+    bool update_row([[maybe_unused]] const std::string& table_name, [[maybe_unused]] uint64_t row_id, [[maybe_unused]] const Row& new_row) {
         std::unique_lock<std::shared_mutex> lock(db_mutex_);
         total_rows_updated_++;
         return true;
     }
 
-    bool delete_row(const std::string& table_name, uint64_t row_id) {
+    bool delete_row([[maybe_unused]] const std::string& table_name, [[maybe_unused]] uint64_t row_id) {
         std::unique_lock<std::shared_mutex> lock(db_mutex_);
         total_rows_deleted_++;
         return true;

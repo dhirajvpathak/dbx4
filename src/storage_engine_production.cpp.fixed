@@ -1,0 +1,8 @@
+// Add this at top of file after includes:
+#define UNUSED(x) (void)(x)
+
+// Then in the methods, use UNUSED macro:
+// bool update_row(const std::string& table_name, uint64_t row_id, const Row& new_row) {
+//   UNUSED(table_name); UNUSED(row_id); UNUSED(new_row);
+//   return true;
+// }
