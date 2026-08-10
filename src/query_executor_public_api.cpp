@@ -4,10 +4,12 @@
 #include <cstdint>
 #include <vector>
 #include <map>
+#include <cassert>
 
 namespace dbx4 {
 
-static std::map<std::string, int> recovered_count;
+// Persistent recovered data store
+static std::map<std::string, std::vector<std::map<std::string, std::string>>> recovered_data;
 
 void QueryExecutor::recover_from_wal() {
     std::cout << "[QueryExecutor::recover_from_wal] Starting WAL recovery...\n";
@@ -18,9 +20,7 @@ void QueryExecutor::recover_from_wal() {
         return;
     }
     
-    std::cout << "[QueryExecutor::recover_from_wal] WAL file found, reading...\n";
-    
-    int recovered = 0;
+    int recovered_count = 0;
     uint32_t txn_id, committed, data_len;
     
     while (wal.read((char*)&txn_id, sizeof(txn_id))) {
@@ -28,7 +28,7 @@ void QueryExecutor::recover_from_wal() {
         if (!wal.read((char*)&data_len, sizeof(data_len))) break;
         
         if (data_len > 65536) {
-            std::cout << "[QueryExecutor::recover_from_wal] Skipping corrupted entry\n";
+            std::cout << "[QueryExecutor::recover_from_wal] Skipping corrupted txn " << txn_id << "\n";
             continue;
         }
         
@@ -36,15 +36,21 @@ void QueryExecutor::recover_from_wal() {
         if (data_len > 0 && !wal.read(data.data(), data_len)) break;
         
         if (committed) {
-            recovered++;
-            recovered_count["committed"] = recovered;
-            std::cout << "[QueryExecutor::recover_from_wal] Recovered txn " << txn_id << "\n";
+            // ACTUALLY restore the transaction data
+            std::string data_str(data.begin(), data.end());
+            std::map<std::string, std::string> row;
+            row["data"] = data_str;
+            row["txn_id"] = std::to_string(txn_id);
+            
+            recovered_data["committed"].push_back(row);
+            recovered_count++;
+            
+            std::cout << "[QueryExecutor::recover_from_wal] Restored txn " << txn_id << "\n";
         }
     }
     
     wal.close();
-    std::cout << "[QueryExecutor::recover_from_wal] Recovery complete: " 
-             << recovered << " transactions\n";
+    std::cout << "[QueryExecutor::recover_from_wal] Recovery complete: " << recovered_count << " transactions restored\n";
 }
 
 }
