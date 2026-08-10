@@ -1,4 +1,5 @@
 #include "dbx4/query_executor.h"
+#include "dbx4/query_executor.h"
 #include <cassert>
 #include <iostream>
 
