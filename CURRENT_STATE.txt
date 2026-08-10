@@ -1,0 +1,23 @@
+f070e65 Add recover_from_wal() implementation to query_executor.cpp
+f067a98 Add execute(const string&) implementation to query_executor.cpp
+92fc926 Model A Critical Fixes: Public API + WAL Codec
+7470604 MODEL A FIXES: Close Critical Audit Gaps (G-13, G-03, G-05)
+288be56 PHASE 13B: CRITICAL FIXES - MODEL B E2E NOW PASSING
+
+BUILD STATUS:
+- Source files compile: PARTIAL (6 core files OK)
+- Test compilation: FAILED (missing headers, broken includes)
+- Tests that built: ~20/37 (others have compile errors)
+- Tests that run: 0/20 (all crash at runtime)
+
+ROOT CAUSE:
+- Duplicate class definitions across multiple .cpp files (ODR violations)
+- Missing header files (gtest, dbx4/query_executor.h)
+- Tests reference non-existent files and APIs
+- Type declarations missing (uint32_t, uint8_t)
+
+NEXT STEPS:
+1. Audit all .cpp files - remove duplicates
+2. Create missing headers
+3. Fix test includes and type declarations
+4. Build incrementally - fix one test at a time
