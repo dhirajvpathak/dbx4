@@ -1,0 +1,9 @@
+name: Recovery Engine Validation
+on: [push, pull_request]
+jobs:
+  recovery-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build and test recovery
+      run: mkdir -p build && cd build && cmake -S .. -B . && cmake --build . -j$(nproc) && ctest --timeout 120
