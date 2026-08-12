@@ -1,3 +1,4 @@
+#include <iostream>
 #include "dbx4/wal_format.h"
 #include "dbx4/database.h"
 #include <iostream>

@@ -145,7 +145,7 @@ QueryResult QueryExecutor::execute_insert(const std::shared_ptr<InsertStmt>& stm
                 const std::string& col_name = stmt->columns[i];
                 validate_column_exists(col_name, table);
                 
-                size_t col_idx [[maybe_]] = table->schema.column_index[col_name];
+                size_t col_idx [[maybe_unused]] = table->schema.column_index[col_name];
                 
                 if (auto literal = std::dynamic_pointer_cast<Literal>(value_row[i])) {
                     Value val = convert_to_type(

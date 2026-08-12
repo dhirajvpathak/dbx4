@@ -1,3 +1,4 @@
+#include <iostream>
 #include "dbx4/transaction_log.h"
 #include "dbx4/sql_parser.h"
 #include <iostream>

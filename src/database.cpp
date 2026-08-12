@@ -1,5 +1,4 @@
 #include "dbx4/database.h"
-#include "dbx4/recovery_engine_production.cpp"
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
