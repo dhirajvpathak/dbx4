@@ -3,9 +3,11 @@ project(dbx4 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 enable_testing()
 
-# MINIMAL core - pick ONE version of each component
+# MINIMAL core
 add_library(dbx4_core STATIC
   src/query_executor_engine.cpp
   src/storage_engine_production.cpp
@@ -16,12 +18,13 @@ add_library(dbx4_core STATIC
 )
 
 target_compile_options(dbx4_core PRIVATE -Wall -Wextra -fPIC)
+target_include_directories(dbx4_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 file(GLOB TEST_FILES "tests/*.cpp")
-
 foreach(test_file ${TEST_FILES})
   get_filename_component(test_name ${test_file} NAME_WE)
   add_executable(${test_name} ${test_file})
   target_link_libraries(${test_name} dbx4_core)
+  target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   add_test(NAME ${test_name} COMMAND ${test_name} TIMEOUT 120)
 endforeach()
