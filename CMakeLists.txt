@@ -7,12 +7,34 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 enable_testing()
 
-# MINIMAL core
+# ALL production source files
 add_library(dbx4_core STATIC
-  src/query_executor_engine.cpp
-  src/storage_engine_production.cpp
-  src/recovery_wal_hardened.cpp
+  src/advanced_features.cpp
+  src/advanced_sql_executor.cpp
+  src/agent_integration.cpp
+  src/database.cpp
+  src/database_engine.cpp
+  src/durable_log_system.cpp
+  src/indexing.cpp
   src/mvcc_locks.cpp
+  src/query_executor.cpp
+  src/query_executor_engine.cpp
+  src/query_executor_public_api.cpp
+  src/recovery_engine_complete.cpp
+  src/recovery_engine_production.cpp
+  src/recovery_wal.cpp
+  src/recovery_wal_hardened.cpp
+  src/sql_executor_enhanced.cpp
+  src/sql_lexer.cpp
+  src/sql_parser.cpp
+  src/sql_parser_enhanced.cpp
+  src/storage_complete.cpp
+  src/storage_engine_production.cpp
+  src/storage_engine_test_fixed.cpp
+  src/testing_suite.cpp
+  src/transaction_correctness.cpp
+  src/transaction_executor.cpp
+  src/transaction_integrity_e2e.cpp
   src/transaction_manager.cpp
   src/wal_codec_robust.cpp
 )
@@ -20,6 +42,7 @@ add_library(dbx4_core STATIC
 target_compile_options(dbx4_core PRIVATE -Wall -Wextra -fPIC)
 target_include_directories(dbx4_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Build all tests
 file(GLOB TEST_FILES "tests/*.cpp")
 foreach(test_file ${TEST_FILES})
   get_filename_component(test_name ${test_file} NAME_WE)
